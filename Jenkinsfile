@@ -215,8 +215,8 @@ pipeline {
                     # whole suite against the wrong server without saying so.
                     #
                     # python3 first, since it is the most accurate; fall back to
-                    # ss because the Jenkins agent is itself a container and its
-                    # image is not this repository's to define.
+                    # ss because the tooling on whatever agent runs this is not
+                    # this repository's to define.
                     if command -v python3 >/dev/null 2>&1; then
                         python3 - "$TEST_DB_TUNNEL_PORT" <<'PY'
 import socket, sys
