@@ -27,8 +27,37 @@ pipeline {
         // can be overridden from the Jenkins job configuration
         // (Configure > Environment variables) without editing this file.
         // Declarative `environment` otherwise overwrites job-level variables.
+        /*
+         * Where the test database lives.
+         *
+         * This agent has no database of its own - nothing listens on 3306 here -
+         * and the MariaDB holding `openrx_test` is bound to its own loopback
+         * interface, so it is unreachable directly. The default is therefore to
+         * forward a local port to it over SSH, which is why DB_PORT defaults to
+         * TEST_DB_TUNNEL_PORT rather than 3306: DB_HOST/DB_PORT address the
+         * tunnel, and the app and test suites never learn that the database is
+         * on another machine.
+         *
+         * Set TEST_DB_USE_DOCKER=true to skip all of that and run a disposable
+         * MariaDB container on this agent instead.
+         */
+        TEST_DB_USE_DOCKER = "${env.TEST_DB_USE_DOCKER ?: 'false'}"
+        TEST_DB_SSH_TUNNEL = "${env.TEST_DB_SSH_TUNNEL ?: (env.TEST_DB_USE_DOCKER == 'true' ? '' : 'dev@94.250.201.58')}"
+        // The identity the tunnel authenticates with. It belongs to the `dev`
+        // account on this host; the pipeline runs as root, which can read it.
+        TEST_DB_SSH_KEY = "${env.TEST_DB_SSH_KEY ?: (env.TEST_DB_USE_DOCKER == 'true' ? '' : '/home/dev/.ssh/openrx-deploy')}"
+        // 13307 rather than the more obvious 13306: a MariaDB container is
+        // already published on 127.0.0.1:13306 on this host, and a tunnel that
+        // silently failed to bind would leave the tests talking to that
+        // container instead of the intended server. The tunnel stage also probes
+        // the port first and refuses to start when something already answers.
+        TEST_DB_TUNNEL_PORT = "${env.TEST_DB_TUNNEL_PORT ?: '13307'}"
+
         DB_HOST = "${env.DB_HOST ?: '127.0.0.1'}"
-        DB_PORT = "${env.DB_PORT ?: '3306'}"
+        // Outer `?:` twice over on purpose: if TEST_DB_TUNNEL_PORT were somehow
+        // not visible here, falling back to 3306 would send the suites at a
+        // database that does not exist on this host.
+        DB_PORT = "${env.DB_PORT ?: (env.TEST_DB_USE_DOCKER == 'true' ? '3306' : (env.TEST_DB_TUNNEL_PORT ?: '13307'))}"
         DB_SOCKET = "${env.DB_SOCKET ?: ''}"
         DB_ADMIN_USER = "${env.DB_ADMIN_USER ?: 'root'}"
         DB_ADMIN_PASSWORD = "${env.DB_ADMIN_PASSWORD ?: 'root'}"
@@ -36,30 +65,14 @@ pipeline {
         TEST_DB_USER = "${env.TEST_DB_USER ?: 'openrx_test'}"
         TEST_DB_PASSWORD = "${env.TEST_DB_PASSWORD ?: 'openrx_test'}"
         TEST_API_PORT = "${env.TEST_API_PORT ?: '3202'}"
-        // Set TEST_DB_USE_DOCKER=true when the agent has no MariaDB: the
-        // pipeline then starts and provisions a disposable container.
-        TEST_DB_USE_DOCKER = "${env.TEST_DB_USE_DOCKER ?: 'false'}"
         TEST_DB_CONTAINER = "${env.TEST_DB_CONTAINER ?: 'openrx-test-db'}"
-        // Set TEST_DB_MANAGED=true when the test schema and its user already
-        // exist (created once by an administrator). The pipeline then needs no
-        // administrative database credentials at all: TEST_DB_USER alone must
-        // hold ALL PRIVILEGES on TEST_DB_NAME.
-        TEST_DB_MANAGED = "${env.TEST_DB_MANAGED ?: 'false'}"
-
-        // Set TEST_DB_SSH_TUNNEL=dev@host when the database lives on another
-        // machine and only listens on its loopback interface — which is how the
-        // production MariaDB is configured, so it is unreachable directly. The
-        // pipeline then forwards a local port to it and DB_HOST stays
-        // 127.0.0.1. Leave empty to skip the tunnel entirely.
-        TEST_DB_SSH_TUNNEL = "${env.TEST_DB_SSH_TUNNEL ?: ''}"
-        // 13307 rather than the more obvious 13306: a MariaDB container is
-        // already published on 127.0.0.1:13306 on this host, and a tunnel that
-        // silently failed to bind would leave the tests talking to that
-        // container instead of the intended server.
-        TEST_DB_TUNNEL_PORT = "${env.TEST_DB_TUNNEL_PORT ?: '13307'}"
-        // Optional path to the private key the tunnel should use. Leave empty to
-        // use the Jenkins user's default identities.
-        TEST_DB_SSH_KEY = "${env.TEST_DB_SSH_KEY ?: ''}"
+        // Managed mode is the default for the tunnel: the schema and its user
+        // already exist on that server, and `root` there is socket-
+        // authenticated, so root/root over TCP is rejected. TEST_DB_USER holds
+        // ALL PRIVILEGES on TEST_DB_NAME and needs no administrative credentials
+        // to drop and rebuild it. The disposable container, by contrast, is
+        // created and provisioned as root/root.
+        TEST_DB_MANAGED = "${env.TEST_DB_MANAGED ?: (env.TEST_DB_USE_DOCKER == 'true' ? 'false' : 'true')}"
 
         /*
          * Backend deployment (see the 'Backend - Deploy' stage).
