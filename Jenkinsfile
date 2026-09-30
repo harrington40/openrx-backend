@@ -208,13 +208,17 @@ pipeline {
                     TUNNEL_LOG="$WORKSPACE/test-db-tunnel.log"
                     TUNNEL_PID_FILE="$WORKSPACE/test-db-tunnel.pid"
 
-                    # Refuse to start if something already holds the port. On
-                    # this Jenkins host a MariaDB container (docker-proxy) is
-                    # published on 127.0.0.1:13306, and it serves a *different*
-                    # database — binding over it, or connecting through it by
-                    # mistake, would run the whole suite against the wrong
-                    # server without saying so.
-                    python3 - "$TEST_DB_TUNNEL_PORT" <<'PY'
+                    # Refuse to start if something already holds the port. A
+                    # MariaDB container is published on 127.0.0.1:13306 on the
+                    # Jenkins host and it serves a *different* database - binding
+                    # over it, or connecting through it by mistake, would run the
+                    # whole suite against the wrong server without saying so.
+                    #
+                    # python3 first, since it is the most accurate; fall back to
+                    # ss because the Jenkins agent is itself a container and its
+                    # image is not this repository's to define.
+                    if command -v python3 >/dev/null 2>&1; then
+                        python3 - "$TEST_DB_TUNNEL_PORT" <<'PY'
 import socket, sys
 port = int(sys.argv[1])
 probe = socket.socket()
@@ -230,6 +234,17 @@ else:
 finally:
     probe.close()
 PY
+                    elif command -v ss >/dev/null 2>&1; then
+                        if ss -ltn 2>/dev/null | grep -q ":$TEST_DB_TUNNEL_PORT "; then
+                            echo "[tunnel] port $TEST_DB_TUNNEL_PORT is ALREADY IN USE on this host."
+                            echo "[tunnel] whatever is listening there would answer the tests instead."
+                            exit 1
+                        fi
+                    else
+                        echo "[tunnel] neither python3 nor ss is available - cannot check whether"
+                        echo "[tunnel] port $TEST_DB_TUNNEL_PORT is free, so the tunnel may bind over"
+                        echo "[tunnel] an existing listener and test the wrong database."
+                    fi
 
                     # Optional explicit identity file, for when the Jenkins user's
                     # default keys are not the ones authorised on the DB host:
