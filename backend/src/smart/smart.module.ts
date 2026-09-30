@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { SmartController } from './smart.controller';
+import { jwtSecret } from '../config/secrets';
 
 @Module({
     imports: [
         JwtModule.register({
-            secret: process.env.JWT_SECRET || 'openrx-secret-key-2024',
+            secret: jwtSecret(),
         }),
     ],
     controllers: [SmartController],

@@ -3,6 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
 import * as crypto from 'crypto';
 import { License, LicenseTier } from './license.entity';
+import {
+    licenseGeneratorPassphraseHash,
+    licenseSecrets,
+} from '../config/secrets';
 
 /**
  * Local license generation and validation.
@@ -15,16 +19,18 @@ import { License, LicenseTier } from './license.entity';
 export class LicenseService {
     private readonly logger = new Logger(LicenseService.name);
 
-    // Secret rotation: add new secrets at the front.
-    // Old secrets remain for validating existing keys.
-    private readonly SECRET_VERSIONS = [
-        { version: 2, secret: 'openrx-license-secret-v2-2026' },
-        { version: 1, secret: 'openrx-license-secret-v1' },
-    ];
+    // Rotation is configuration, not code: LICENSE_SECRETS holds
+    // `<version>:<secret>` entries, newest first, and older entries stay so that
+    // keys issued under them still validate. Nothing is hardcoded here - a
+    // literal would be published along with the repository, which is the same as
+    // handing out the ability to mint licences.
+    private readonly SECRET_VERSIONS = licenseSecrets();
 
-    // Generator passphrase hash (SHA-256 of "openrx-sales-2024")
+    // SHA-256 of the generator passphrase. Only the hash is configured; it used
+    // to be a literal sitting under a comment that named the passphrase, which
+    // made the passphrase public.
     private readonly GENERATOR_PASSPHRASE_HASH =
-        'd5c7e8f9a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7';
+        licenseGeneratorPassphraseHash();
 
     /**
      * Verify the generator passphrase server-side.

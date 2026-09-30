@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { MENU_ITEMS, MENU_ROLES } from './menu-items';
 
 /** `users` row (admin management view). */
@@ -334,15 +335,22 @@ export class AdminService implements OnModuleInit {
             ],
         );
 
-        // Also create users_secure record with a default hashed password
-        const defaultPassword = dto.password || 'password123';
-        const hash = bcrypt.hashSync(defaultPassword, 10);
+        // Also create the users_secure record. When the caller supplies no
+        // password, issue a random one: a literal default would be published in
+        // the source, so every account created without a password would share a
+        // key anyone could read. The value is returned once, as this response
+        // already did, for the administrator to pass on.
+        const password =
+            typeof dto.password === 'string' && dto.password.trim() !== ''
+                ? dto.password
+                : crypto.randomBytes(18).toString('base64url');
+        const hash = bcrypt.hashSync(password, 10);
         await this.dataSource.query(
             `INSERT INTO users_secure (id, username, password) VALUES (?, ?, ?)`,
             [result.insertId, dto.username || '', hash],
         );
 
-        return { id: result.insertId, defaultPassword };
+        return { id: result.insertId, defaultPassword: password };
     }
 
     async updateUser(id: number, dto: UserDto) {

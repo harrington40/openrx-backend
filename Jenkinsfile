@@ -343,6 +343,16 @@ PY
                         export DB_DATABASE="$TEST_DB_NAME"
                         export DB_LOGGING=false
 
+                        # Signing secrets. The application has no fallback for
+                        # any of them, so a run that omits these cannot boot.
+                        # Throwaway values: jest's own setup
+                        # (backend/test/setup-env.ts) supplies the same ones, and
+                        # they are exported here too so this stage does not depend
+                        # on that file.
+                        export JWT_SECRET="openrx-test-jwt-secret-not-for-any-real-deployment"
+                        export LICENSE_SECRETS="1:openrx-test-license-secret-not-for-real-use"
+                        export LICENSE_GENERATOR_PASSPHRASE_HASH="5601e6dfd8ee13137d54ea1ca5df6bb9d2fa66c785400313feefda397d5fdca8"
+
                         # --forceExit: the MySQL pool and the socket.io gateway keep
                         # the event loop alive, so Jest never exits on its own.
                         npm run test:e2e -- --forceExit
@@ -394,6 +404,11 @@ PY
                         export DB_PASSWORD="$TEST_DB_PASSWORD"
                         export DB_DATABASE="$TEST_DB_NAME"
                         export DB_LOGGING=false
+                        # Same throwaway secrets as the e2e stage: the app
+                        # refuses to start without them.
+                        export JWT_SECRET="openrx-test-jwt-secret-not-for-any-real-deployment"
+                        export LICENSE_SECRETS="1:openrx-test-license-secret-not-for-real-use"
+                        export LICENSE_GENERATOR_PASSPHRASE_HASH="5601e6dfd8ee13137d54ea1ca5df6bb9d2fa66c785400313feefda397d5fdca8"
                         nohup node dist/main.js > "$BACKEND_LOG" 2>&1 &
                         echo $! > "$WORKSPACE/backend-test-server.pid"
                     )

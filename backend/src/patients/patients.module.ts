@@ -7,6 +7,7 @@ import { PatientsService } from './patients.service';
 import { Patient } from './patient.entity';
 import { PatientPortalModule } from '../patient-portal/patient-portal.module';
 import { EmergencyModule } from '../emergency/emergency.module';
+import { jwtSecret } from '../config/secrets';
 
 @Module({
     imports: [
@@ -16,7 +17,7 @@ import { EmergencyModule } from '../emergency/emergency.module';
         // history). EmergencyModule does not import PatientsModule, so no cycle.
         EmergencyModule,
         JwtModule.register({
-            secret: process.env.JWT_SECRET || 'openrx-secret-key-2024',
+            secret: jwtSecret(),
             signOptions: { expiresIn: '8h' },
         }),
     ],

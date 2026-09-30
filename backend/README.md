@@ -31,6 +31,30 @@
 $ npm install
 ```
 
+## Required configuration
+
+Copy `backend/.env.example` to `backend/.env` and fill it in:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+The application has **no fallbacks** for its secrets, deliberately: a literal
+fallback in the source is the same as publishing the value, and this code is
+public. A missing secret stops the process at startup, which is fixable, instead
+of quietly signing real sessions with a key anyone can read.
+
+| Variable | How to set it |
+| --- | --- |
+| `JWT_SECRET` | HS256 key for access tokens: `openssl rand -hex 32` |
+| `LICENSE_SECRETS` | `<version>:<secret>` entries, newest first, comma separated. Keep the older versions listed so keys they signed still validate; make new secrets with `openssl rand -hex 32` |
+| `LICENSE_GENERATOR_PASSPHRASE_HASH` | `printf '%s' 'your passphrase' \| sha256sum` - only the hash is configured, never the passphrase |
+| `DB_*` | Database connection. `DB_PASSWORD` has no default; leave it blank only for a database that genuinely has no password |
+
+Values that previously shipped in this repository are refused by name, so a
+deployment still configured with one fails loudly rather than carrying on with a
+key that is already public. See `src/config/secrets.ts`.
+
 ## Compile and run the project
 
 ```bash

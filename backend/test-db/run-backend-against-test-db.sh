@@ -12,6 +12,8 @@
 #
 # Environment overrides: DB_HOST DB_PORT TEST_DB_NAME TEST_DB_USER
 #                        TEST_DB_PASSWORD PORT
+#                        JWT_SECRET LICENSE_SECRETS
+#                        LICENSE_GENERATOR_PASSPHRASE_HASH
 #
 set -euo pipefail
 
@@ -24,6 +26,13 @@ TEST_DB_NAME="${TEST_DB_NAME:-openrx_test}"
 TEST_DB_USER="${TEST_DB_USER:-openrx_test}"
 TEST_DB_PASSWORD="${TEST_DB_PASSWORD:-openrx_test}"
 PORT="${PORT:-3202}"
+
+# The application refuses to start without these, so supply throwaway values
+# unless the environment already has real ones. They mirror the values in
+# backend/test/setup-env.ts and backend/.env.test.example.
+JWT_SECRET="${JWT_SECRET:-openrx-test-jwt-secret-not-for-any-real-deployment}"
+LICENSE_SECRETS="${LICENSE_SECRETS:-1:openrx-test-license-secret-not-for-real-use}"
+LICENSE_GENERATOR_PASSPHRASE_HASH="${LICENSE_GENERATOR_PASSPHRASE_HASH:-5601e6dfd8ee13137d54ea1ca5df6bb9d2fa66c785400313feefda397d5fdca8}"
 
 cd "$BACKEND_DIR"
 
@@ -50,4 +59,7 @@ exec env \
     DB_PASSWORD="$TEST_DB_PASSWORD" \
     DB_DATABASE="$TEST_DB_NAME" \
     DB_LOGGING=false \
+    JWT_SECRET="$JWT_SECRET" \
+    LICENSE_SECRETS="$LICENSE_SECRETS" \
+    LICENSE_GENERATOR_PASSPHRASE_HASH="$LICENSE_GENERATOR_PASSPHRASE_HASH" \
     node "$BACKEND_DIR/dist/main.js"
