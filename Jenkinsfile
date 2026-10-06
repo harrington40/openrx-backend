@@ -731,12 +731,16 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
             // Chain the production smoke check after a green Nightly run.
             // Gated by the TRIGGER_SMOKE parameter (set on OpenRx-Nightly only);
             // propagate:false and try/catch so a missing job can't fail this build.
-            if (params.TRIGGER_SMOKE == true) {
-                try {
-                    echo "TRIGGER_SMOKE=true — kicking off OpenRx-Smoke"
-                    build job: 'OpenRx-Smoke', wait: false, propagate: false
-                } catch (err) {
-                    echo "Could not trigger OpenRx-Smoke: ${err}"
+            // Wrapped in script {} because a declarative `post` block only accepts
+            // steps - a bare `if` is not a step and fails to compile.
+            script {
+                if (params.TRIGGER_SMOKE == true) {
+                    try {
+                        echo "TRIGGER_SMOKE=true — kicking off OpenRx-Smoke"
+                        build job: 'OpenRx-Smoke', wait: false, propagate: false
+                    } catch (err) {
+                        echo "Could not trigger OpenRx-Smoke: ${err}"
+                    }
                 }
             }
         }
