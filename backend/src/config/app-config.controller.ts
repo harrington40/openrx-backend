@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { APP_VERSION } from './version';
 
 @Controller('config')
 export class AppConfigController {
@@ -10,7 +11,8 @@ export class AppConfigController {
         return {
             language: this.config.get<string>('LANGUAGE') || 'en',
             appName: 'OpenRx',
-            version: '1.0.0',
+            // Baked in at release time (tools/release.py); APP_VERSION overrides.
+            version: process.env.APP_VERSION || APP_VERSION,
         };
     }
 }

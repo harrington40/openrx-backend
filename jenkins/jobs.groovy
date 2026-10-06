@@ -72,3 +72,32 @@ job('OpenRx-Nightly') {
         }
     }
 }
+
+// Manual, versioned customer release. No cron — start it by hand with a semver.
+job('OpenRx-Release') {
+    description('OpenRx customer release — manual. Validates a semver version, runs the ' +
+                'test gate, stamps + builds, packages artifacts, tags v<version>, and ' +
+                'optionally deploys. Needs the `openrx-github` credential to push.')
+    parameters {
+        stringParam('RELEASE_VERSION', '', 'Version to release, semver, e.g. 1.4.0 (required).')
+        booleanParam('RUN_TESTS', true, 'Run the backend unit tests + build as a release gate.')
+        booleanParam('PUSH_TAG', true, 'Commit the version bump and push the v<version> git tag.')
+        booleanParam('BUILD_FRONTEND', true, 'Also build and package the SPA (interface/new).')
+        booleanParam('DEPLOY', false, 'Deploy the released backend after a successful build.')
+        booleanParam('DRY_RUN', false, 'Do everything except commit/tag/push and deploy.')
+    }
+    definition {
+        cpsScm {
+            scm {
+                git {
+                    remote {
+                        url('https://github.com/harrington40/openrx-backend.git')
+                    }
+                    branch('*/main')
+                }
+            }
+            scriptPath('Jenkinsfile.release')
+            lightweight(true)
+        }
+    }
+}
