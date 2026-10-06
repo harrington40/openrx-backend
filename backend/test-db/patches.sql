@@ -52,16 +52,17 @@ ALTER TABLE billing ADD COLUMN IF NOT EXISTS reverses_id INT NULL;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_ref VARCHAR(40) NULL;
 
 -- ---------------------------------------------------------------------------
--- Tables that exist in production but are declared NOWHERE in the repository
+-- Tables that back TypeORM entities (declared here explicitly)
 -- ---------------------------------------------------------------------------
--- These four back TypeORM entities (`*.entity.ts`) but no service creates them
--- and `synchronize` is off, so a database built from this repository does not
--- have them: /license/status, /documents and /imaging all fail with a 5xx. They
--- are reproduced here so the test database matches production.
+-- These four back TypeORM entities (`*.entity.ts`). `synchronize` is off, so
+-- without an explicit table a fresh deployment had none, and /license/status,
+-- /documents and /imaging all failed with a 5xx.
 --
--- TODO(openrx): these should move into the services' ensureSchema() methods
--- (or into migrations) — right now a fresh production deployment is missing
--- them, which is a real bug, not just a test-database problem.
+-- They are now self-healed on boot: LicenseService, AvatarsService,
+-- ImagingService and DocumentsService each run `CREATE TABLE IF NOT EXISTS` in
+-- their `ensureSchema()`, closing the TODO that used to live here. They are kept
+-- below as the explicit schema record so a database built from this repository
+-- has them before the backend ever boots.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS licenses (

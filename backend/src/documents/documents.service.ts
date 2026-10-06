@@ -1,6 +1,11 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+    Injectable,
+    Logger,
+    BadRequestException,
+    OnModuleInit,
+} from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { B2StorageService } from '../storage/b2-storage.service';
@@ -24,7 +29,7 @@ export type SanitizedDocument = Omit<
 > & { plainCode?: string };
 
 @Injectable()
-export class DocumentsService {
+export class DocumentsService implements OnModuleInit {
     private readonly logger = new Logger(DocumentsService.name);
 
     constructor(
@@ -32,7 +37,52 @@ export class DocumentsService {
         private readonly config: ConfigService,
         @InjectRepository(Document)
         private readonly docRepo: Repository<Document>,
+        @InjectDataSource() private readonly dataSource: DataSource,
     ) {}
+
+    async onModuleInit(): Promise<void> {
+        await this.ensureSchema();
+    }
+
+    /**
+     * Create the `documents_secure` table if it does not yet exist.
+     *
+     * The table backs the TypeORM `Document` entity, but `synchronize` is off and
+     * no migration shipped it, so a fresh deployment had no `documents_secure`
+     * table and the /documents endpoints failed with a 5xx. Self-heal it on boot
+     * instead of relying on the table already being present in production.
+     */
+    private async ensureSchema(): Promise<void> {
+        await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS documents_secure (
+        id               INT(11) NOT NULL AUTO_INCREMENT,
+        originalName     VARCHAR(255) NOT NULL,
+        mimeType         VARCHAR(100) NOT NULL,
+        sizeBytes        BIGINT(20) NOT NULL,
+        b2FileId         VARCHAR(255) NOT NULL,
+        b2Path           VARCHAR(500) NOT NULL,
+        accessCodeHash   VARCHAR(255) NOT NULL,
+        plainCode        VARCHAR(10) DEFAULT '',
+        pid              INT(11) DEFAULT 0,
+        uploaderUserId   INT(11) DEFAULT 0,
+        uploadedBy       VARCHAR(100) NOT NULL,
+        recipientContact VARCHAR(255) DEFAULT '',
+        recipientName    VARCHAR(255) DEFAULT '',
+        category         VARCHAR(50) DEFAULT 'general',
+        status           VARCHAR(20) DEFAULT 'pending',
+        notes            TEXT DEFAULT NULL,
+        accessCount      INT(11) DEFAULT 0,
+        lastAccessedAt   DATETIME DEFAULT NULL,
+        createdAt        DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_pid (pid),
+        KEY idx_uploader (uploaderUserId),
+        KEY idx_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+        this.logger.log('Documents schema ready');
+    }
 
     private get bucket() {
         return {

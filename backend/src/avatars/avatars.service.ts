@@ -1,6 +1,11 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+    Injectable,
+    Logger,
+    BadRequestException,
+    OnModuleInit,
+} from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { B2StorageService } from '../storage/b2-storage.service';
 import { Avatar } from './avatar.entity';
@@ -14,7 +19,7 @@ export interface UploadedAvatarFile {
 }
 
 @Injectable()
-export class AvatarsService {
+export class AvatarsService implements OnModuleInit {
     private readonly logger = new Logger(AvatarsService.name);
 
     constructor(
@@ -22,7 +27,39 @@ export class AvatarsService {
         private readonly config: ConfigService,
         @InjectRepository(Avatar)
         private readonly avatarRepo: Repository<Avatar>,
+        @InjectDataSource() private readonly dataSource: DataSource,
     ) {}
+
+    async onModuleInit(): Promise<void> {
+        await this.ensureSchema();
+    }
+
+    /**
+     * Create the `avatars` table if it does not yet exist.
+     *
+     * The table backs the TypeORM `Avatar` entity, but `synchronize` is off and
+     * no migration shipped it, so a fresh deployment had no `avatars` table.
+     * Self-heal it on boot instead of relying on the row already being present in
+     * the production database.
+     */
+    private async ensureSchema(): Promise<void> {
+        await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS avatars (
+        id           INT(11) NOT NULL AUTO_INCREMENT,
+        userId       INT(11) NOT NULL,
+        originalName VARCHAR(255) NOT NULL,
+        mimeType     VARCHAR(100) NOT NULL,
+        sizeBytes    BIGINT(20) NOT NULL,
+        b2FileId     VARCHAR(255) NOT NULL,
+        b2Path       VARCHAR(500) NOT NULL,
+        createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY userId (userId),
+        KEY idx_userId (userId)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+        this.logger.log('Avatar schema ready');
+    }
 
     private get bucket() {
         return {

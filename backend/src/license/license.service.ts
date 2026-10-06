@@ -1,6 +1,11 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual } from 'typeorm';
+import {
+    Injectable,
+    Logger,
+    BadRequestException,
+    OnModuleInit,
+} from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, LessThanOrEqual, DataSource } from 'typeorm';
 import * as crypto from 'crypto';
 import { License, LicenseTier } from './license.entity';
 import {
@@ -16,7 +21,7 @@ import {
  * Keys are validated against all active secret versions.
  */
 @Injectable()
-export class LicenseService {
+export class LicenseService implements OnModuleInit {
     private readonly logger = new Logger(LicenseService.name);
 
     // Rotation is configuration, not code: LICENSE_SECRETS holds
@@ -47,7 +52,40 @@ export class LicenseService {
     constructor(
         @InjectRepository(License)
         private readonly licenseRepo: Repository<License>,
+        @InjectDataSource() private readonly dataSource: DataSource,
     ) {}
+
+    async onModuleInit(): Promise<void> {
+        await this.ensureSchema();
+    }
+
+    /**
+     * Create the `licenses` table if it does not yet exist.
+     *
+     * The table backs the TypeORM `License` entity, but `synchronize` is off and
+     * no migration shipped it, so a fresh deployment had no `licenses` table and
+     * `/license/status` failed with a 5xx. Self-heal it on boot instead of relying
+     * on the row already being present in the production database.
+     */
+    private async ensureSchema(): Promise<void> {
+        await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS licenses (
+        id           INT(11) NOT NULL AUTO_INCREMENT,
+        licenseKey   VARCHAR(30) NOT NULL,
+        tier         VARCHAR(20) DEFAULT 'basic',
+        activatedAt  DATETIME DEFAULT NULL,
+        expiresAt    DATETIME NOT NULL,
+        status       VARCHAR(20) DEFAULT 'active',
+        customerName VARCHAR(255) DEFAULT '',
+        maxUsers     INT(11) DEFAULT 5,
+        createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY licenseKey (licenseKey)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+        this.logger.log('License schema ready');
+    }
 
     private get currentSecret(): string {
         return this.SECRET_VERSIONS[0].secret;

@@ -1,6 +1,11 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+    Injectable,
+    Logger,
+    BadRequestException,
+    OnModuleInit,
+} from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { B2StorageService } from '../storage/b2-storage.service';
 import { Imaging, ImagingType } from './imaging.entity';
@@ -14,7 +19,7 @@ export interface UploadedImagingFile {
 }
 
 @Injectable()
-export class ImagingService {
+export class ImagingService implements OnModuleInit {
     private readonly logger = new Logger(ImagingService.name);
 
     constructor(
@@ -22,7 +27,43 @@ export class ImagingService {
         private readonly config: ConfigService,
         @InjectRepository(Imaging)
         private readonly imagingRepo: Repository<Imaging>,
+        @InjectDataSource() private readonly dataSource: DataSource,
     ) {}
+
+    async onModuleInit(): Promise<void> {
+        await this.ensureSchema();
+    }
+
+    /**
+     * Create the `imaging` table if it does not yet exist.
+     *
+     * The table backs the TypeORM `Imaging` entity, but `synchronize` is off and
+     * no migration shipped it, so a fresh deployment had no `imaging` table and
+     * the imaging endpoints failed with a 5xx. Self-heal it on boot instead of
+     * relying on the table already being present in the production database.
+     */
+    private async ensureSchema(): Promise<void> {
+        await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS imaging (
+        id           INT(11) NOT NULL AUTO_INCREMENT,
+        pid          INT(11) NOT NULL,
+        eid          INT(11) DEFAULT NULL,
+        type         VARCHAR(20) NOT NULL,
+        originalName VARCHAR(255) NOT NULL,
+        mimeType     VARCHAR(100) NOT NULL,
+        sizeBytes    BIGINT(20) NOT NULL,
+        b2FileId     VARCHAR(255) NOT NULL,
+        b2Path       VARCHAR(500) NOT NULL,
+        description  VARCHAR(500) DEFAULT '',
+        uploadedBy   VARCHAR(100) NOT NULL,
+        createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_pid (pid),
+        KEY idx_type (type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+        this.logger.log('Imaging schema ready');
+    }
 
     private getBucket(type: ImagingType) {
         const prefix = type === 'xray' ? 'XRAYS' : 'LABS';
