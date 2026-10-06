@@ -90,7 +90,9 @@ pipeline {
          *
          * DEPLOY_BACKEND is deliberately off: this job runs on a 35-minute
          * cron, so a default of true would push every commit straight to
-         * production. Set it to 'true' for a build you intend to release.
+         * production. Enable it for a build you intend to release, with the
+         * DEPLOY_BACKEND job parameter (or the DEPLOY_BACKEND env var). Both
+         * jobs default it to false.
          *
          * DEPLOY_SSH_KEY points at a key owned by the `dev` account on this
          * Jenkins host. The pipeline runs as root, which can read it; move the
@@ -683,7 +685,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
          * it skips the deploy.
          */
         stage('Backend - Deploy') {
-            when { expression { return env.DEPLOY_BACKEND == 'true' } }
+            when { expression { return env.DEPLOY_BACKEND == 'true' || params.DEPLOY_BACKEND == true } }
             steps {
                 sh '''
                     set -e

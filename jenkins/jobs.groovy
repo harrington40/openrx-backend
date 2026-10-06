@@ -9,7 +9,8 @@
 //
 // Both jobs run the SAME pipeline (this repo's Jenkinsfile); they differ only
 // in their schedule and their RUN_UI_TESTS parameter default. The Jenkinsfile
-// deliberately declares neither, so each job owns them.
+// deliberately declares neither, so each job owns them. Both jobs also keep
+// DEPLOY_BACKEND off — enable it per run on the build you intend to release.
 //
 // The repository is public, so no credentials are set. If you make it private,
 // add `credentials('<id>')` inside the `remote { }` block below (an SSH key or
@@ -21,6 +22,8 @@ job('OpenRx-CI') {
     parameters {
         booleanParam('RUN_UI_TESTS', false,
             'Build the SPA and run the Vitest + Playwright UI suites.')
+        booleanParam('DEPLOY_BACKEND', false,
+            'Deploy the built backend to production. Off by default — enable per run.')
     }
     triggers {
         cron('H/35 * * * *')
@@ -47,6 +50,8 @@ job('OpenRx-Nightly') {
     parameters {
         booleanParam('RUN_UI_TESTS', true,
             'Build the SPA and run the Vitest + Playwright UI suites.')
+        booleanParam('DEPLOY_BACKEND', false,
+            'Deploy the built backend to production. Off by default — enable per run.')
     }
     triggers {
         // Once per night, at a hashed minute inside the 0-4 AM window.
