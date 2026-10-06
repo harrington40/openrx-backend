@@ -28,6 +28,12 @@ python3 tools/release.py notes --version 1.4.0   # markdown notes from git histo
 | **OpenRx-Release** | **manual** | versioned customer release (below) |
 | **OpenRx-Smoke** | nightly | read-only production health check (no release/deploy) |
 
+**Chaining & notifications:** on success, **OpenRx-Nightly** triggers
+**OpenRx-Smoke** (`TRIGGER_SMOKE=true` on the Nightly job), so production is
+checked right after the nightly build; OpenRx-CI leaves it false. Both
+**OpenRx-Smoke** and **OpenRx-Release** email `NOTIFY_EMAIL` on failure (blank by
+default — set the job parameter and configure Jenkins SMTP to enable it).
+
 All three run from the same repo; the two CI jobs use `Jenkinsfile`, the release
 uses `Jenkinsfile.release` (see `jenkins/jobs.groovy`).
 

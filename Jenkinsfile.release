@@ -46,6 +46,8 @@ pipeline {
             description: 'Use the openrx-smoke credential to exercise login + authenticated routes.')
         booleanParam(name: 'SMOKE_ROLLBACK', defaultValue: false,
             description: 'If the post-deploy smoke test fails, roll the backend back one release.')
+        string(name: 'NOTIFY_EMAIL', defaultValue: '',
+            description: 'Email address to notify on failure (blank = no email). Needs Jenkins SMTP.')
     }
 
     environment {
@@ -430,6 +432,21 @@ pipeline {
             echo "======================================"
             echo " OPENRX RELEASE ${params.RELEASE_VERSION} FAILED"
             echo "======================================"
+            script {
+                def to = (params.NOTIFY_EMAIL ?: '').trim()
+                if (to) {
+                    try {
+                        mail(to: to,
+                             subject: "OpenRx release ${params.RELEASE_VERSION} FAILED",
+                             body: "OpenRx release failed.\n\n" +
+                                   "Version: ${params.RELEASE_VERSION}\n" +
+                                   "Dry run: ${params.DRY_RUN}   Deploy: ${params.DEPLOY}\n" +
+                                   "Build:   ${env.BUILD_URL}")
+                    } catch (err) {
+                        echo "mail step unavailable (configure SMTP in Jenkins): ${err}"
+                    }
+                }
+            }
         }
         always {
             archiveArtifacts(artifacts: 'release/**', allowEmptyArchive: true, fingerprint: true)

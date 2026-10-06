@@ -24,6 +24,8 @@ job('OpenRx-CI') {
             'Build the SPA and run the Vitest + Playwright UI suites.')
         booleanParam('DEPLOY_BACKEND', false,
             'Deploy the built backend to production. Off by default — enable per run.')
+        booleanParam('TRIGGER_SMOKE', false,
+            'On success, trigger the OpenRx-Smoke production health check.')
     }
     triggers {
         cron('H/35 * * * *')
@@ -52,6 +54,8 @@ job('OpenRx-Nightly') {
             'Build the SPA and run the Vitest + Playwright UI suites.')
         booleanParam('DEPLOY_BACKEND', false,
             'Deploy the built backend to production. Off by default — enable per run.')
+        booleanParam('TRIGGER_SMOKE', true,
+            'On success, trigger the OpenRx-Smoke production health check.')
     }
     triggers {
         // Once per night, at a hashed minute inside the 0-4 AM window.

@@ -727,6 +727,18 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
             echo '======================================'
             echo "Build: ${env.BUILD_NUMBER}"
             echo "Commit: ${env.GIT_COMMIT ?: 'unknown'}"
+
+            // Chain the production smoke check after a green Nightly run.
+            // Gated by the TRIGGER_SMOKE parameter (set on OpenRx-Nightly only);
+            // propagate:false and try/catch so a missing job can't fail this build.
+            if (params.TRIGGER_SMOKE == true) {
+                try {
+                    echo "TRIGGER_SMOKE=true — kicking off OpenRx-Smoke"
+                    build job: 'OpenRx-Smoke', wait: false, propagate: false
+                } catch (err) {
+                    echo "Could not trigger OpenRx-Smoke: ${err}"
+                }
+            }
         }
 
         failure {

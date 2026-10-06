@@ -22,6 +22,8 @@ pipeline {
             description: 'Origin to smoke-test (SPA root + /api).')
         booleanParam(name: 'SMOKE_LOGIN', defaultValue: true,
             description: 'Use the openrx-smoke credential to exercise login + authenticated routes.')
+        string(name: 'NOTIFY_EMAIL', defaultValue: '',
+            description: 'Email address to notify on failure (blank = no email). Needs Jenkins SMTP.')
     }
 
     environment {
@@ -71,6 +73,20 @@ pipeline {
         }
         failure {
             echo "OpenRx smoke FAILED (${params.SMOKE_BASE_URL}) — investigate production"
+            script {
+                def to = (params.NOTIFY_EMAIL ?: '').trim()
+                if (to) {
+                    try {
+                        mail(to: to,
+                             subject: "OpenRx smoke FAILED (${params.SMOKE_BASE_URL})",
+                             body: "OpenRx production smoke failed.\n\n" +
+                                   "URL:   ${params.SMOKE_BASE_URL}\n" +
+                                   "Build: ${env.BUILD_URL}")
+                    } catch (err) {
+                        echo "mail step unavailable (configure SMTP in Jenkins): ${err}"
+                    }
+                }
+            }
         }
     }
 }
