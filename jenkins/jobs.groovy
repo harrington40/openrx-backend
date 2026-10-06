@@ -82,6 +82,7 @@ job('OpenRx-Release') {
         stringParam('RELEASE_VERSION', '', 'Version to release, semver, e.g. 1.4.0 (required).')
         booleanParam('RUN_TESTS', true, 'Run the backend unit tests + build as a release gate.')
         booleanParam('PUSH_TAG', true, 'Commit the version bump and push the v<version> git tag.')
+        booleanParam('GITHUB_RELEASE', true, 'Publish a GitHub Release for the tag using RELEASE_NOTES-<version>.md.')
         booleanParam('BUILD_FRONTEND', true, 'Also build and package the SPA (interface/new).')
         booleanParam('DEPLOY', false, 'Deploy the released backend after a successful build.')
         booleanParam('DRY_RUN', false, 'Do everything except commit/tag/push and deploy.')

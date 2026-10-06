@@ -32,6 +32,8 @@ pipeline {
             description: 'Run the backend unit tests + build as a release gate.')
         booleanParam(name: 'PUSH_TAG', defaultValue: true,
             description: 'Commit the version bump and push the v<version> git tag.')
+        booleanParam(name: 'GITHUB_RELEASE', defaultValue: true,
+            description: 'Publish a GitHub Release for the tag using RELEASE_NOTES-<version>.md (skipped in DRY_RUN, or when PUSH_TAG=false).')
         booleanParam(name: 'BUILD_FRONTEND', defaultValue: true,
             description: 'Also build and package the SPA (interface/new).')
         booleanParam(name: 'DEPLOY', defaultValue: false,
@@ -44,6 +46,7 @@ pipeline {
         GIT_URL = 'github.com/harrington40/openrx-backend.git'
         GIT_BRANCH = 'main'
         GIT_CREDENTIALS = 'openrx-github'
+        GITHUB_REPO = 'harrington40/openrx-backend'
         DEPLOY_SERVER = "${env.DEPLOY_SERVER ?: 'dev@94.250.201.58'}"
         DEPLOY_REMOTE_DIR = "${env.DEPLOY_REMOTE_DIR ?: '/home/dev/openrx'}"
         DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/home/dev/.ssh/openrx-deploy'}"
@@ -51,6 +54,7 @@ pipeline {
         // Parameters, exposed to the sh steps as plain env vars.
         RUN_TESTS = "${params.RUN_TESTS}"
         PUSH_TAG = "${params.PUSH_TAG}"
+        GITHUB_RELEASE = "${params.GITHUB_RELEASE}"
         BUILD_FRONTEND = "${params.BUILD_FRONTEND}"
         DEPLOY = "${params.DEPLOY}"
         DRY_RUN = "${params.DRY_RUN}"
@@ -293,6 +297,31 @@ pipeline {
                         git push origin "HEAD:$GIT_BRANCH"
                         git push origin "v$RELEASE_VERSION"
                         echo "Released v$RELEASE_VERSION"
+                    '''
+                }
+            }
+        }
+
+        // Publish a GitHub Release for the tag, using the same release notes the
+        // package contains (release/RELEASE_NOTES-<version>.md). Needs a GitHub
+        // token with `repo` scope (the `openrx-github` credential). Skipped in
+        // DRY_RUN or when PUSH_TAG=false.
+        stage('GitHub release') {
+            when { expression { return params.GITHUB_RELEASE && params.PUSH_TAG && !params.DRY_RUN } }
+            steps {
+                withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
+                    sh '''
+                        set -e
+                        export GITHUB_TOKEN="$GIT_TOKEN"
+                        python3 tools/release.py github-release \
+                            --repo "$GITHUB_REPO" \
+                            --tag "v$RELEASE_VERSION" \
+                            --name "OpenRx $RELEASE_VERSION" \
+                            --notes-file "release/RELEASE_NOTES-$RELEASE_VERSION.md" \
+                            --asset "release/openrx-$RELEASE_VERSION.tar.gz" \
+                            --asset "release/BUILD_INFO.json"
                     '''
                 }
             }

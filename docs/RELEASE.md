@@ -51,8 +51,14 @@ uses `Jenkinsfile.release` (see `jenkins/jobs.groovy`).
 version + build backend` (with a **version-consistency gate**) → `Build SPA`
 (gated) → `Assemble unified package` → `Verify package contents` → `Scan for
 secrets` → `Package release artifacts` → `Commit version + tag + push` (gated) →
-`Deploy (customer)` (gated, ships the already-built artifacts — never rebuilds).
-Artifacts are archived from `release/**`.
+`GitHub release` (gated) → `Deploy (customer)` (gated, ships the already-built
+artifacts — never rebuilds). Artifacts are archived from `release/**`.
+
+The **`GitHub release`** stage creates a GitHub Release for the pushed tag
+`v<version>`, using `release/RELEASE_NOTES-<version>.md` as its body and
+uploading `openrx-<version>.tar.gz` + `BUILD_INFO.json` as release assets
+(`tools/release.py github-release`, idempotent). It is skipped in `DRY_RUN`, when
+`PUSH_TAG=false`, or when `GITHUB_RELEASE=false`.
 
 ### Release artifacts
 

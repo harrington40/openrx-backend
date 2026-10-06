@@ -218,6 +218,85 @@ def cmd_build_info(args) -> int:
     return 0
 
 
+def cmd_github_release(args) -> int:
+    """Create/update a GitHub Release for a tag and upload assets.
+
+    Uses the GitHub REST API via urllib (no extra tools). The token is read from
+    the ``GITHUB_TOKEN`` (or ``GH_TOKEN``) env var and is never printed.
+    Idempotent: if the release for the tag already exists it is reused.
+    """
+    import os
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    notes = ""
+    if args.notes_file:
+        notes = Path(args.notes_file).read_text(encoding="utf-8")
+
+    if args.dry_run:
+        print(f"[gh] DRY-RUN: would publish release '{args.name or args.tag}' "
+              f"for tag {args.tag} on {args.repo}")
+        print(f"[gh]   body: {len(notes)} chars; assets: {args.asset}")
+        return 0
+
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        _fail("GITHUB_TOKEN (or GH_TOKEN) is not set")
+
+    api = "https://api.github.com"
+
+    def _req(method: str, url: str, data=None, ctype="application/json"):
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "openrx-release",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if ctype:
+            headers["Content-Type"] = ctype
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8") or "{}")
+
+    payload = {
+        "tag_name": args.tag,
+        "name": args.name or args.tag,
+        "body": notes,
+        "draft": bool(args.draft),
+        "prerelease": bool(args.prerelease),
+    }
+    try:
+        rel = _req("POST", f"{api}/repos/{args.repo}/releases",
+                   json.dumps(payload).encode())
+    except urllib.error.HTTPError as exc:
+        if exc.code == 422:  # already exists for this tag
+            rel = _req("GET", f"{api}/repos/{args.repo}/releases/tags/"
+                             f"{urllib.parse.quote(args.tag)}")
+            print(f"[gh] release for {args.tag} already exists (id {rel.get('id')})")
+        else:
+            _fail(f"GitHub API {exc.code}: {exc.read().decode('utf-8', 'replace')[:300]}")
+
+    rid = rel["id"]
+    upload_url = rel["upload_url"].split("{", 1)[0]
+    print(f"[gh] release {args.tag} -> {rel.get('html_url')}")
+
+    for path in args.asset or []:
+        p = Path(path)
+        if not p.exists():
+            print(f"[gh]   skip missing asset: {path}")
+            continue
+        data = p.read_bytes()
+        url = f"{upload_url}?name={urllib.parse.quote(p.name)}"
+        try:
+            _req("POST", url, data, ctype="application/octet-stream")
+            print(f"[gh]   uploaded {p.name} ({len(data)} bytes)")
+        except urllib.error.HTTPError as exc:
+            _fail(f"asset upload failed for {p.name}: {exc.code} "
+                  f"{exc.read().decode('utf-8', 'replace')[:200]}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="OpenRx version + release helper.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -243,6 +322,17 @@ def main(argv=None) -> int:
     s.add_argument("--version", default="")
     s.add_argument("--out", default="")
     s.set_defaults(func=cmd_build_info)
+
+    s = sub.add_parser("github-release")
+    s.add_argument("--repo", required=True, help="owner/name")
+    s.add_argument("--tag", required=True, help="e.g. v1.0.0")
+    s.add_argument("--name", default="", help="release title (default: the tag)")
+    s.add_argument("--notes-file", default="", help="markdown body")
+    s.add_argument("--asset", action="append", default=[], help="file to upload (repeatable)")
+    s.add_argument("--draft", action="store_true")
+    s.add_argument("--prerelease", action="store_true")
+    s.add_argument("--dry-run", action="store_true", help="print intent; do not call the API")
+    s.set_defaults(func=cmd_github_release)
 
     args = p.parse_args(argv)
     return args.func(args)
