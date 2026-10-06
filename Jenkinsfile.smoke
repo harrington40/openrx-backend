@@ -1,0 +1,76 @@
+// OpenRx production smoke — a scheduled health check, no release.
+//
+// Runs the same read-only check the release uses (tools/release.py smoke)
+// against the running deployment: /config, the SPA root + a referenced asset,
+// a login, and key read-only routes. Fails the build if production is unhealthy.
+// It never tags, pushes, releases or deploys.
+//
+// Job: see jenkins/jobs.groovy ("OpenRx-Smoke"), Script Path Jenkinsfile.smoke,
+// nightly cron (after the OpenRx-Nightly window). Needs the `openrx-smoke`
+// credential (a production login) when SMOKE_LOGIN=true.
+pipeline {
+    agent any
+
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    parameters {
+        string(name: 'SMOKE_BASE_URL', defaultValue: 'https://openrx.transtechologies.com',
+            description: 'Origin to smoke-test (SPA root + /api).')
+        booleanParam(name: 'SMOKE_LOGIN', defaultValue: true,
+            description: 'Use the openrx-smoke credential to exercise login + authenticated routes.')
+    }
+
+    environment {
+        SMOKE_CREDENTIALS = 'openrx-smoke'
+        SMOKE_BASE_URL = "${params.SMOKE_BASE_URL}"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Smoke') {
+            steps {
+                script {
+                    if (params.SMOKE_LOGIN) {
+                        withCredentials([usernamePassword(credentialsId: env.SMOKE_CREDENTIALS,
+                                                          usernameVariable: 'SMOKE_USER',
+                                                          passwordVariable: 'SMOKE_PASS')]) {
+                            sh '''
+                                set -e
+                                python3 tools/release.py smoke \
+                                    --base-url "$SMOKE_BASE_URL" \
+                                    --user "$SMOKE_USER" --password "$SMOKE_PASS" \
+                                    --route /api/patients \
+                                    --route /api/appointments \
+                                    --route /api/providers
+                            '''
+                        }
+                    } else {
+                        echo "SMOKE_LOGIN=false — checking anonymously only"
+                        sh '''
+                            set -e
+                            python3 tools/release.py smoke \
+                                --base-url "$SMOKE_BASE_URL" \
+                                --route /api/patients
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "OpenRx smoke OK (${params.SMOKE_BASE_URL})"
+        }
+        failure {
+            echo "OpenRx smoke FAILED (${params.SMOKE_BASE_URL}) — investigate production"
+        }
+    }
+}

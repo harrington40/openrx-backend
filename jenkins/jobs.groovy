@@ -105,3 +105,31 @@ job('OpenRx-Release') {
         }
     }
 }
+
+// Nightly production health check — no release, no deploy.
+job('OpenRx-Smoke') {
+    description('OpenRx production smoke — nightly. Read-only health check of the running ' +
+                'deployment (/config, SPA, login, key routes). Does not tag, release or deploy.')
+    parameters {
+        stringParam('SMOKE_BASE_URL', 'https://openrx.transtechologies.com', 'Origin to smoke-test (SPA root + /api).')
+        booleanParam('SMOKE_LOGIN', true, 'Use the openrx-smoke credential to exercise login + authenticated routes.')
+    }
+    triggers {
+        // Nightly, after the OpenRx-Nightly window (which runs H H(0-4)).
+        cron('H H(5-7) * * *')
+    }
+    definition {
+        cpsScm {
+            scm {
+                git {
+                    remote {
+                        url('https://github.com/harrington40/openrx-backend.git')
+                    }
+                    branch('*/main')
+                }
+            }
+            scriptPath('Jenkinsfile.smoke')
+            lightweight(true)
+        }
+    }
+}

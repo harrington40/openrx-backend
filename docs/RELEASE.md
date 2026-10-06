@@ -26,6 +26,7 @@ python3 tools/release.py notes --version 1.4.0   # markdown notes from git histo
 | **OpenRx-CI** | every 35 min | backend unit + API tests → reliability report |
 | **OpenRx-Nightly** | nightly | the above **plus** Vitest + Playwright UI sweep |
 | **OpenRx-Release** | **manual** | versioned customer release (below) |
+| **OpenRx-Smoke** | nightly | read-only production health check (no release/deploy) |
 
 All three run from the same repo; the two CI jobs use `Jenkinsfile`, the release
 uses `Jenkinsfile.release` (see `jenkins/jobs.groovy`).
