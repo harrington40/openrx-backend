@@ -84,12 +84,30 @@ pipeline {
 
         stage('Validate version') {
             steps {
-                sh '''
-                    set -e
-                    V="${RELEASE_VERSION:?set RELEASE_VERSION (e.g. 1.4.0)}"
-                    python3 tools/release.py check "$V"
-                    echo "RELEASE_VERSION=$V"
-                '''
+                script {
+                    def version = (params.RELEASE_VERSION ?: '').trim()
+                    // A release is versioned, so the version must be explicit. Guard
+                    // here rather than relying on a bare `set` expansion, so a missing
+                    // value fails with a branded, actionable message instead of a raw
+                    // "RELEASE_VERSION: parameter null or not set" shell error.
+                    if (!version) {
+                        echo '======================================'
+                        echo ' OPENRX RELEASE: RELEASE_VERSION is not set'
+                        echo '======================================'
+                        echo 'This job cuts a versioned customer release and needs an'
+                        echo 'explicit semver. Re-run it with "Build with Parameters" and set:'
+                        echo '  RELEASE_VERSION = <major.minor.patch>   e.g. 1.4.0'
+                        echo 'Tip: set DRY_RUN=true first to rehearse the release.'
+                        error('RELEASE_VERSION is required: re-run with "Build with Parameters" and a semver such as 1.4.0')
+                    }
+                    withEnv(["RELEASE_VERSION=${version}"]) {
+                        sh '''
+                            set -e
+                            python3 tools/release.py check "$RELEASE_VERSION"
+                            echo "RELEASE_VERSION=$RELEASE_VERSION"
+                        '''
+                    }
+                }
             }
         }
 
