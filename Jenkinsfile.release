@@ -86,19 +86,25 @@ pipeline {
             steps {
                 script {
                     def version = (params.RELEASE_VERSION ?: '').trim()
-                    // A release is versioned, so the version must be explicit. Guard
-                    // here rather than relying on a bare `set` expansion, so a missing
-                    // value fails with a branded, actionable message instead of a raw
-                    // "RELEASE_VERSION: parameter null or not set" shell error.
-                    if (!version) {
+                    // A release is versioned, so the version must be explicit and a
+                    // valid semver. Guard it here so a missing OR malformed value fails
+                    // with a branded, actionable message (and a clear build reason)
+                    // instead of a raw "parameter null or not set" shell error or an
+                    // opaque "not semver". The pattern mirrors tools/release.py SEMVER.
+                    def semver = ~/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/
+                    if (!(version ==~ semver)) {
                         echo '======================================'
-                        echo ' OPENRX RELEASE: RELEASE_VERSION is not set'
+                        echo ' OPENRX RELEASE: invalid RELEASE_VERSION'
                         echo '======================================'
-                        echo 'This job cuts a versioned customer release and needs an'
-                        echo 'explicit semver. Re-run it with "Build with Parameters" and set:'
-                        echo '  RELEASE_VERSION = <major.minor.patch>   e.g. 1.4.0'
+                        echo "Got:    '${version}'"
+                        echo 'Wanted: a semver version, e.g. 1.4.0'
+                        echo 'Re-run with "Build with Parameters" and give each parameter its'
+                        echo 'OWN field: RELEASE_VERSION=1.4.0 in the RELEASE_VERSION box, and'
+                        echo 'tick DRY_RUN separately. Do not type something like'
+                        echo '  RELEASE_VERSION=1.4.0 DRY_RUN=true'
+                        echo 'into a single field.'
                         echo 'Tip: set DRY_RUN=true first to rehearse the release.'
-                        error('RELEASE_VERSION is required: re-run with "Build with Parameters" and a semver such as 1.4.0')
+                        error("RELEASE_VERSION must be a semver such as 1.4.0 (got '${version}').")
                     }
                     withEnv(["RELEASE_VERSION=${version}"]) {
                         sh '''
