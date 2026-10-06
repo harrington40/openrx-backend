@@ -2,11 +2,22 @@ pipeline {
     agent any
 
     /*
-     * Run automatically approximately every 35 minutes.
-     * Jenkins hashes the starting minute so jobs are distributed.
+     * This pipeline shares ONE test schema and ONE fixed SSH-tunnel port, so two
+     * builds of the same job cannot run at once: whichever starts second gets a
+     * `@2` workspace, finds TEST_DB_TUNNEL_PORT already bound by the first, and
+     * dies in the tunnel stage with `port 13307 is ALREADY IN USE`.
+     *
+     * Serialise the builds instead of letting them fight over the port. If you
+     * ever need parallel builds, give each run its own tunnel port (and its own
+     * test schema) via the job environment — concurrency and a shared port are
+     * mutually exclusive.
      */
-    triggers {
-        cron('H/35 * * * *')
+    options {
+        disableConcurrentBuilds()
+        // Keep a bounded history; the cron runs this often.
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        // A hung tunnel or database must not pin the executor forever.
+        timeout(time: 45, unit: 'MINUTES')
     }
 
     environment {
@@ -90,6 +101,14 @@ pipeline {
         DEPLOY_REMOTE_DIR = "${env.DEPLOY_REMOTE_DIR ?: '/home/dev/openrx'}"
         DEPLOY_KEEP = "${env.DEPLOY_KEEP ?: '3'}"
         DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/home/dev/.ssh/openrx-deploy'}"
+    }
+
+    /*
+     * Run automatically approximately every 35 minutes.
+     * Jenkins hashes the starting minute so jobs are distributed.
+     */
+    triggers {
+        cron('H/35 * * * *')
     }
 
     stages {
@@ -176,7 +195,15 @@ pipeline {
                         set -e
 
                         echo "Running backend unit tests..."
-                        npm test -- --runInBand
+                        # Also emit machine-readable results for the reliability
+                        # report. Jest writes the JSON even when tests fail, and
+                        # the report degrades gracefully if it is missing.
+                        mkdir -p ../tests/reliability-artifacts
+                        npm test -- --runInBand --ci \
+                            --coverage --coverageReporters=json-summary \
+                            --json --outputFile=../tests/reliability-artifacts/jest-results.json
+                        cp -f coverage/coverage-summary.json \
+                              ../tests/reliability-artifacts/jest-coverage-summary.json 2>/dev/null || true
                     '''
                 }
             }
@@ -220,6 +247,23 @@ pipeline {
 
                     TUNNEL_LOG="$WORKSPACE/test-db-tunnel.log"
                     TUNNEL_PID_FILE="$WORKSPACE/test-db-tunnel.pid"
+
+                    # A previous build can leave its tunnel running: post { always }
+                    # does not run if the agent is killed mid-build, and the ssh
+                    # process then holds the port indefinitely. If our pid file
+                    # names a live ssh that is still forwarding THIS port, that is
+                    # our own tunnel - keep it and let the build continue, instead
+                    # of failing with "port already in use". Anything else on the
+                    # port is foreign and still refuses below.
+                    if [ -f "$TUNNEL_PID_FILE" ]; then
+                        OLD_PID="$(cat "$TUNNEL_PID_FILE" 2>/dev/null || true)"
+                        if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null && ps -o args= -p "$OLD_PID" 2>/dev/null | grep -q -- "-L $TEST_DB_TUNNEL_PORT:"; then
+                            echo "[tunnel] reusing the tunnel already open on 127.0.0.1:$TEST_DB_TUNNEL_PORT (pid $OLD_PID)"
+                            exit 0
+                        fi
+                        echo "[tunnel] clearing stale pid file (pid ${OLD_PID:-unknown} is gone)"
+                        rm -f "$TUNNEL_PID_FILE"
+                    fi
 
                     # Refuse to start if something already holds the port. A
                     # MariaDB container is published on 127.0.0.1:13306 on the
@@ -565,7 +609,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
             // Keep the backend log and the pytest report around: without them a
             // failed build says only that some step returned non-zero.
             archiveArtifacts(
-                artifacts: 'backend-test-server.log, backend/tests/api-tests/pytest-results.xml',
+                artifacts: 'backend-test-server.log, backend/tests/api-tests/pytest-results.xml, tests/reliability-artifacts/**, reliability-report/**',
                 allowEmptyArchive: true,
                 fingerprint: false,
             )
@@ -587,6 +631,57 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
                     docker rm -f "${TEST_DB_CONTAINER:-openrx-test-db}" >/dev/null 2>&1 || true
                 fi
             '''
+
+            // Generate the reliability report from this run's results and
+            // publish it as a build page. Best-effort: missing result files are
+            // shown as "not run" rather than failing the build.
+            sh '''
+                if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+                if [ -f tools/build_reliability_report.py ]; then
+                    mkdir -p reliability-report
+                    "$PY" tools/build_reliability_report.py --collect \
+                        --out reliability-report/reliability-report.html \
+                        --json reliability-report/reliability-report.json || true
+                    echo "[reliability] generated:"; ls -la reliability-report || true
+                else
+                    echo "[reliability] tools/build_reliability_report.py not found; skipping"
+                fi
+            '''
+
+            // Show pass/fail in the build's Test Result summary.
+            junit allowEmptyResults: true,
+                  testResults: 'backend/tests/api-tests/pytest-results.xml'
+
+            // Publish the self-contained reliability page via the HTML Publisher
+            // plugin and put the index on the build description. Wrapped so a
+            // missing plugin never fails the build.
+            script {
+                if (fileExists('reliability-report/reliability-report.html')) {
+                    try {
+                        publishHTML(target: [
+                            allowMissing: true,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: 'reliability-report',
+                            reportFiles: 'reliability-report.html',
+                            reportName: 'Test Reliability Report',
+                            reportTitles: 'OpenRx test reliability',
+                        ])
+                        if (fileExists('reliability-report/reliability-report.json')) {
+                            def txt = readFile('reliability-report/reliability-report.json')
+                            def score = (txt =~ /"reliability"\s*:\s*([0-9.]+)/)
+                            def label = (txt =~ /"confidence"\s*:\s*"([^"]+)"/)
+                            if (score) {
+                                currentBuild.description = "reliability ${score[0][1]}/100 (${label ? label[0][1] : 'n/a'})"
+                            }
+                        }
+                    } catch (err) {
+                        echo "HTML Publisher unavailable (install the 'HTML Publisher' plugin): ${err}"
+                    }
+                } else {
+                    echo "reliability-report.html not found; nothing to publish"
+                }
+            }
 
             echo '======================================'
             echo ' Jenkins Build Information'

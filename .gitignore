@@ -33,6 +33,9 @@ ccdaservice/node_modules
 .pytest_cache/
 __pycache__/
 
+# reliability report output (generated)
+reliability-report/
+
 # dev tool local overrides
 phpcs.xml
 phpstan.neon

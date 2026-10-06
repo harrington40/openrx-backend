@@ -1,0 +1,4 @@
+# Machine-generated inputs/outputs for the reliability report (produced by CI
+# or `python3 tools/build_reliability_report.py`). Not source — don't commit.
+reliability-artifacts/
+reliability-history.jsonl
