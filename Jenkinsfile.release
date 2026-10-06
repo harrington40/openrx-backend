@@ -48,6 +48,12 @@ pipeline {
         DEPLOY_REMOTE_DIR = "${env.DEPLOY_REMOTE_DIR ?: '/home/dev/openrx'}"
         DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/home/dev/.ssh/openrx-deploy'}"
         DEPLOY_KEEP = "${env.DEPLOY_KEEP ?: '3'}"
+        // Parameters, exposed to the sh steps as plain env vars.
+        RUN_TESTS = "${params.RUN_TESTS}"
+        PUSH_TAG = "${params.PUSH_TAG}"
+        BUILD_FRONTEND = "${params.BUILD_FRONTEND}"
+        DEPLOY = "${params.DEPLOY}"
+        DRY_RUN = "${params.DRY_RUN}"
     }
 
     stages {
@@ -82,10 +88,21 @@ pipeline {
                         npm ci
                         echo "Linting..."
                         npx eslint "{src,apps,libs,test}/**/*.ts" || true
-                        echo "Unit tests..."
+                        echo "Backend unit tests (Jest)..."
                         npm test -- --runInBand
                     '''
                 }
+                sh '''
+                    set -e
+                    if [ "$BUILD_FRONTEND" = "true" ]; then
+                        echo "Frontend unit tests (Vitest)..."
+                        cd interface/new
+                        npm ci --no-audit --no-fund
+                        npm test
+                    else
+                        echo "Skipping Vitest (BUILD_FRONTEND=false)"
+                    fi
+                '''
             }
         }
 
@@ -94,11 +111,15 @@ pipeline {
                 sh '''
                     set -e
                     python3 tools/release.py set "$RELEASE_VERSION"
+                    # Consistency gate: VERSION, both package.json files and
+                    # version.ts must all equal RELEASE_VERSION.
+                    python3 tools/release.py verify "$RELEASE_VERSION"
+
                     echo "Building backend..."
                     cd backend
                     npm ci --no-audit --no-fund >/dev/null 2>&1 || true
                     npm run build
-                    test -f dist/main.js
+                    test -f dist/main.js || { echo "backend build produced no dist/main.js"; exit 1; }
                 '''
             }
         }
@@ -108,10 +129,108 @@ pipeline {
             steps {
                 sh '''
                     set -e
+                    # vite.config.ts builds into the repo-root public/dist
+                    # (outDir: ../../public/dist), which the web server serves.
                     cd interface/new
                     npm ci --no-audit --no-fund
                     npm run build
-                    test -f dist/index.html
+                    test -f ../../public/dist/index.html \
+                        || { echo "SPA build produced no public/dist/index.html"; exit 1; }
+                '''
+            }
+        }
+
+        stage('Assemble unified package') {
+            steps {
+                sh '''
+                    set -e
+                    V="$RELEASE_VERSION"
+                    PKG="release/openrx-$V"
+                    rm -rf "$PKG"
+                    mkdir -p "$PKG/backend"
+
+                    # Backend runtime: compiled dist + package metadata. Never node_modules.
+                    cp -a backend/dist "$PKG/backend/dist"
+                    cp -a backend/package.json backend/package-lock.json "$PKG/backend/"
+
+                    # Frontend: the SPA production build. The backend is API-only,
+                    # so the package mirrors production: the SPA lives at the site
+                    # root (public/dist) and the web server serves it.
+                    if [ -f public/dist/index.html ]; then
+                        mkdir -p "$PKG/public"
+                        cp -a public/dist "$PKG/public/dist"
+                    fi
+
+                    cp VERSION "$PKG/VERSION"
+                    python3 tools/release.py notes --version "$V" > "$PKG/RELEASE_NOTES-$V.md"
+                    python3 tools/release.py build-info --version "$V" --out "$PKG/BUILD_INFO.json"
+                    echo "Assembled:"; find "$PKG" -maxdepth 2 -type d | sort
+                '''
+            }
+        }
+
+        stage('Verify package contents') {
+            steps {
+                sh '''
+                    set -e
+                    V="$RELEASE_VERSION"
+                    PKG="release/openrx-$V"
+                    fail=0
+                    need() { [ -f "$1" ] || { echo "MISSING: $1"; fail=1; }; }
+
+                    need "$PKG/backend/dist/main.js"
+                    need "$PKG/backend/package.json"
+                    need "$PKG/backend/package-lock.json"
+                    need "$PKG/VERSION"
+                    need "$PKG/BUILD_INFO.json"
+                    need "$PKG/RELEASE_NOTES-$V.md"
+
+                    if [ -f "$PKG/public/dist/index.html" ]; then
+                        assets=$(grep -oE "/assets/[A-Za-z0-9._/-]+" "$PKG/public/dist/index.html" | sort -u)
+                        [ -n "$assets" ] || { echo "index.html references no assets"; fail=1; }
+                        for a in $assets; do
+                            [ -f "$PKG/public/dist$a" ] || { echo "MISSING asset: $a"; fail=1; }
+                        done
+                    else
+                        echo "NOTE: no SPA in the package (BUILD_FRONTEND=false)"
+                    fi
+
+                    [ "$(cat "$PKG/VERSION")" = "$V" ] || { echo "packaged VERSION != $V"; fail=1; }
+                    python3 -c "import json;d=json.load(open('$PKG/BUILD_INFO.json'));assert d['version']=='$V',d" \
+                        || { echo "BUILD_INFO.json version != $V"; fail=1; }
+
+                    [ "$fail" = 0 ] || { echo "package verification FAILED"; exit 1; }
+                    echo "package verification passed"
+                '''
+            }
+        }
+
+        stage('Scan for secrets') {
+            steps {
+                sh '''
+                    set -e
+                    PKG="release/openrx-$RELEASE_VERSION"
+
+                    # Known-dangerous files (by name). A legitimate
+                    # dist/config/secrets.js exists, so do NOT match on "secret".
+                    hits=""
+                    for pat in '.env' '.env.*' '*.pem' '*.key' 'id_rsa*' 'id_ed25519*' '*.sql'; do
+                        found=$(find "$PKG" -type f -name "$pat" 2>/dev/null || true)
+                        [ -n "$found" ] && hits="$hits$found
+"
+                    done
+                    gitdir=$(find "$PKG" -type d -name '.git' 2>/dev/null || true)
+
+                    if [ -n "$(printf '%s' "$hits" | tr -d '[:space:]')" ] || [ -n "$gitdir" ]; then
+                        echo "Refusing to package potential secret/config files:"
+                        printf '%s\\n' "$hits" "$gitdir"
+                        exit 1
+                    fi
+
+                    if grep -rInE 'BEGIN (RSA|OPENSSH|PRIVATE) KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}' "$PKG" 2>/dev/null; then
+                        echo "Obvious secret found in the package."; exit 1
+                    fi
+                    echo "secret scan clean"
                 '''
             }
         }
@@ -121,14 +240,31 @@ pipeline {
                 sh '''
                     set -e
                     V="$RELEASE_VERSION"
-                    mkdir -p release
+
+                    # Canonical customer package (backend + SPA + metadata).
+                    tar -czf "release/openrx-$V.tar.gz" -C release "openrx-$V"
+
+                    # Split artifacts matching the server deploy.sh contract:
+                    #   backend  -> top-level dist/ with main.js
+                    #   frontend -> top-level dist/ with index.html
                     tar -czf "release/openrx-backend-$V.tar.gz" -C backend dist
-                    if [ -f interface/new/dist/index.html ]; then
-                        tar -czf "release/openrx-frontend-$V.tar.gz" -C interface/new dist
+                    if [ -f public/dist/index.html ]; then
+                        tar -czf "release/openrx-frontend-$V.tar.gz" -C public dist
                     fi
-                    python3 tools/release.py notes --version "$V" > "release/RELEASE_NOTES-$V.md"
-                    cp VERSION "release/VERSION"
+
                     echo "Release artifacts:"; ls -la release
+
+                    listing=$(tar -tzf "release/openrx-$V.tar.gz")
+                    for m in "openrx-$V/backend/dist/main.js" "openrx-$V/backend/package.json" \
+                             "openrx-$V/backend/package-lock.json" "openrx-$V/VERSION" \
+                             "openrx-$V/BUILD_INFO.json" "openrx-$V/RELEASE_NOTES-$V.md"; do
+                        echo "$listing" | grep -qx "$m" || { echo "tarball missing: $m"; exit 1; }
+                    done
+                    if [ -f public/dist/index.html ]; then
+                        echo "$listing" | grep -q "openrx-$V/public/dist/index.html" \
+                            || { echo "tarball missing the SPA index.html"; exit 1; }
+                    fi
+                    echo "tarball verification passed"
                 '''
             }
         }
@@ -162,21 +298,33 @@ pipeline {
             }
         }
 
+        // Deploys the SAME artifacts the Package stage built — no rebuild here.
+        // Uses the server-side deploy.sh contract (separate --backend / --frontend
+        // tarballs), which is the existing production safety control.
         stage('Deploy (customer)') {
             when { expression { return params.DEPLOY && !params.DRY_RUN } }
             steps {
                 sh '''
                     set -e
                     V="$RELEASE_VERSION"
-                    TARBALL="release/openrx-backend-$V.tar.gz"
-                    test -f "$TARBALL" || { echo "missing $TARBALL"; exit 1; }
+                    BACKEND_TAR="release/openrx-backend-$V.tar.gz"
+                    FRONTEND_TAR="release/openrx-frontend-$V.tar.gz"
+                    test -f "$BACKEND_TAR" || { echo "missing $BACKEND_TAR (build the package first)"; exit 1; }
 
                     SSH_OPTS="-i $DEPLOY_SSH_KEY -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
                     ssh $SSH_OPTS "$DEPLOY_SERVER" "mkdir -p $DEPLOY_REMOTE_DIR/incoming"
-                    scp -q $SSH_OPTS "$TARBALL" "$DEPLOY_SERVER:$DEPLOY_REMOTE_DIR/incoming/"
+                    scp -q $SSH_OPTS "$BACKEND_TAR" "$DEPLOY_SERVER:$DEPLOY_REMOTE_DIR/incoming/"
                     ssh $SSH_OPTS "$DEPLOY_SERVER" \
                         "cd $DEPLOY_REMOTE_DIR && ./deploy.sh --backend incoming/openrx-backend-$V.tar.gz --keep $DEPLOY_KEEP"
-                    echo "Deployed $V to $DEPLOY_SERVER"
+
+                    if [ -f "$FRONTEND_TAR" ]; then
+                        scp -q $SSH_OPTS "$FRONTEND_TAR" "$DEPLOY_SERVER:$DEPLOY_REMOTE_DIR/incoming/"
+                        ssh $SSH_OPTS "$DEPLOY_SERVER" \
+                            "cd $DEPLOY_REMOTE_DIR && ./deploy.sh --frontend incoming/openrx-frontend-$V.tar.gz --keep $DEPLOY_KEEP"
+                    else
+                        echo "No frontend tarball; deployed the backend only"
+                    fi
+                    echo "Deployed $V to $DEPLOY_SERVER (backend + frontend from one build)"
                 '''
             }
         }

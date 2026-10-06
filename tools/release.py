@@ -155,6 +155,69 @@ def cmd_notes(args) -> int:
     return 0
 
 
+def _version_ts_value() -> str:
+    text = VERSION_TS.read_text(encoding="utf-8")
+    m = re.search(r"APP_VERSION\s*=\s*'([^']+)'", text)
+    if not m:
+        _fail(f"could not read APP_VERSION from {VERSION_TS.relative_to(ROOT)}")
+    return m.group(1)
+
+
+def _pkg_version(path: Path) -> str:
+    return str(json.loads(path.read_text(encoding="utf-8")).get("version", ""))
+
+
+def cmd_verify(args) -> int:
+    """Consistency gate: every version source must equal the requested version."""
+    want = args.version
+    sources = {
+        "VERSION": VERSION_FILE.read_text(encoding="utf-8").strip()
+        if VERSION_FILE.exists() else "(missing)",
+        "backend/package.json": _pkg_version(BACKEND_PKG),
+        "interface/new/package.json": _pkg_version(FRONTEND_PKG),
+        "backend/src/config/version.ts": _version_ts_value()
+        if VERSION_TS.exists() else "(missing)",
+    }
+    mismatch = {k: v for k, v in sources.items() if v != want}
+    if mismatch:
+        print(f"error: version mismatch — expected {want!r}", file=sys.stderr)
+        for k, v in sources.items():
+            flag = "OK " if v == want else "BAD"
+            print(f"  [{flag}] {k}: {v}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"[release] all version sources == {want}")
+    return 0
+
+
+def cmd_build_info(args) -> int:
+    """Write BUILD_INFO.json — version + exact git commit + build time. No secrets."""
+    import datetime as _dt
+
+    def _git(*a: str) -> str:
+        try:
+            return subprocess.run(
+                ["git", *a], cwd=ROOT, capture_output=True, text=True, check=True
+            ).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            return ""
+
+    info = {
+        "version": args.version or read_version(),
+        "gitCommit": _git("rev-parse", "HEAD"),
+        "gitShortCommit": _git("rev-parse", "--short", "HEAD"),
+        "buildTime": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "backendVersion": _pkg_version(BACKEND_PKG),
+        "frontendVersion": _pkg_version(FRONTEND_PKG),
+    }
+    text = json.dumps(info, indent=2) + "\n"
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+        print(f"[release] wrote {args.out}")
+    else:
+        print(text, end="")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="OpenRx version + release helper.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -171,6 +234,15 @@ def main(argv=None) -> int:
     s.add_argument("--since", default="")
     s.add_argument("--version", default="")
     s.set_defaults(func=cmd_notes)
+
+    s = sub.add_parser("verify")
+    s.add_argument("version")
+    s.set_defaults(func=cmd_verify)
+
+    s = sub.add_parser("build-info")
+    s.add_argument("--version", default="")
+    s.add_argument("--out", default="")
+    s.set_defaults(func=cmd_build_info)
 
     args = p.parse_args(argv)
     return args.func(args)

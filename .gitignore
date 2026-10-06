@@ -36,6 +36,12 @@ __pycache__/
 # reliability report output (generated)
 reliability-report/
 
+# release build output (generated)
+release/
+
+# built React SPA (vite outDir ../../public/dist)
+public/
+
 # dev tool local overrides
 phpcs.xml
 phpstan.neon
