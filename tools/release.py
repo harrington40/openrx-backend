@@ -297,6 +297,100 @@ def cmd_github_release(args) -> int:
     return 0
 
 
+def cmd_smoke(args) -> int:
+    """Post-deploy smoke test against a running deployment.
+
+    Read-only. Verifies /config (appName + version), the SPA root + one referenced
+    asset, authentication (login -> token), and key read-only routes. Exits
+    non-zero if any check fails.
+    """
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    base = args.base_url.rstrip("/")
+    ctx = ssl._create_unverified_context() if args.insecure else None
+    failures: list[str] = []
+
+    def _get(path: str, token=None):
+        req = urllib.request.Request(base + path, method="GET")
+        req.add_header("Accept", "application/json")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=args.timeout, context=ctx) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+        except Exception as exc:  # noqa: BLE001 - report any transport error
+            return 0, str(exc).encode()
+
+    def check(name: str, ok: bool, detail: str = "") -> None:
+        print(f"[smoke] {'OK  ' if ok else 'FAIL'} {name}" + (f"  ({detail})" if detail else ""))
+        if not ok:
+            failures.append(name)
+
+    # 1. /config
+    status, body = _get("/api/config")
+    config = {}
+    if status == 200:
+        try:
+            config = json.loads(body)
+        except ValueError:
+            config = {}
+    check("GET /api/config -> 200", status == 200, f"status={status}")
+    check("/config has appName", bool(config.get("appName")), f"appName={config.get('appName')!r}")
+    if args.expected_version:
+        check(f"/config version == {args.expected_version}",
+              config.get("version") == args.expected_version,
+              f"got {config.get('version')!r}")
+    else:
+        check("/config has version", bool(config.get("version")),
+              f"version={config.get('version')!r}")
+
+    # 2. SPA root + one referenced asset
+    status, body = _get("/")
+    html = body.decode("utf-8", "replace")
+    check("GET / -> 200", status == 200, f"status={status}")
+    check("SPA index mounts #root", 'id="root"' in html)
+    asset = re.search(r"/assets/[A-Za-z0-9._/-]+", html)
+    check("index.html references /assets/", bool(asset))
+    if asset:
+        astatus, _ = _get(asset.group(0))
+        check(f"GET {asset.group(0)} -> 200", astatus == 200, f"status={astatus}")
+
+    # 3. authentication + read-only routes
+    token = None
+    if args.user and args.password:
+        req = urllib.request.Request(
+            base + "/api/auth/login",
+            data=json.dumps({"username": args.user, "password": args.password}).encode(),
+            method="POST",
+        )
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=args.timeout, context=ctx) as r:
+                token = json.loads(r.read()).get("token")
+            check("login returns a token", bool(token))
+        except Exception as exc:  # noqa: BLE001
+            check("login returns a token", False, str(exc)[:150])
+    else:
+        print("[smoke] login skipped (no --user/--password)")
+
+    for route in args.route or ["/api/patients"]:
+        rstatus, _ = _get(route, token=token)
+        if token:
+            check(f"GET {route} -> 200", rstatus == 200, f"status={rstatus}")
+        else:
+            check(f"GET {route} rejects anonymous", rstatus in (401, 403), f"status={rstatus}")
+
+    if failures:
+        print(f"[smoke] FAILED: {len(failures)} check(s): {', '.join(failures)}")
+        return 1
+    print("[smoke] all checks passed")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="OpenRx version + release helper.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -333,6 +427,16 @@ def main(argv=None) -> int:
     s.add_argument("--prerelease", action="store_true")
     s.add_argument("--dry-run", action="store_true", help="print intent; do not call the API")
     s.set_defaults(func=cmd_github_release)
+
+    s = sub.add_parser("smoke")
+    s.add_argument("--base-url", required=True, help="deployment origin, e.g. https://openrx.example")
+    s.add_argument("--expected-version", default="", help="fail unless /config reports this version")
+    s.add_argument("--user", default="", help="login username (optional)")
+    s.add_argument("--password", default="", help="login password (optional)")
+    s.add_argument("--route", action="append", default=[], help="read-only route to check (repeatable)")
+    s.add_argument("--timeout", type=int, default=20)
+    s.add_argument("--insecure", action="store_true", help="skip TLS verification")
+    s.set_defaults(func=cmd_smoke)
 
     args = p.parse_args(argv)
     return args.func(args)

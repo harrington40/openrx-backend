@@ -86,6 +86,9 @@ job('OpenRx-Release') {
         booleanParam('BUILD_FRONTEND', true, 'Also build and package the SPA (interface/new).')
         booleanParam('DEPLOY', false, 'Deploy the released backend after a successful build.')
         booleanParam('DRY_RUN', false, 'Do everything except commit/tag/push and deploy.')
+        stringParam('SMOKE_BASE_URL', 'https://openrx.transtechologies.com', 'Origin to smoke-test after deploy (SPA root + /api).')
+        booleanParam('SMOKE_LOGIN', true, 'Use the openrx-smoke credential to exercise login + authenticated routes.')
+        booleanParam('SMOKE_ROLLBACK', false, 'If the post-deploy smoke test fails, roll the backend back one release.')
     }
     definition {
         cpsScm {

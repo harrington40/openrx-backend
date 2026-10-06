@@ -52,13 +52,28 @@ version + build backend` (with a **version-consistency gate**) → `Build SPA`
 (gated) → `Assemble unified package` → `Verify package contents` → `Scan for
 secrets` → `Package release artifacts` → `Commit version + tag + push` (gated) →
 `GitHub release` (gated) → `Deploy (customer)` (gated, ships the already-built
-artifacts — never rebuilds). Artifacts are archived from `release/**`.
+artifacts — never rebuilds) → `Post-deploy smoke` (gated). Artifacts are archived
+from `release/**`.
 
 The **`GitHub release`** stage creates a GitHub Release for the pushed tag
 `v<version>`, using `release/RELEASE_NOTES-<version>.md` as its body and
 uploading `openrx-<version>.tar.gz` + `BUILD_INFO.json` as release assets
 (`tools/release.py github-release`, idempotent). It is skipped in `DRY_RUN`, when
 `PUSH_TAG=false`, or when `GITHUB_RELEASE=false`.
+
+The **`Post-deploy smoke`** stage (gated by `DEPLOY && !DRY_RUN`) proves the
+running deployment actually works before the release is called done:
+`GET /api/config` returns the released version, the SPA root serves
+`index.html` with a reachable `/assets/…` bundle, a login returns a token, and
+key read-only routes (`/api/patients`, `/api/appointments`, `/api/providers`)
+answer `200`. If it fails the release fails; set `SMOKE_ROLLBACK=true` to roll
+the backend back one release automatically.
+
+```bash
+# the same check by hand, against any origin
+python3 tools/release.py smoke --base-url https://openrx.transtechologies.com \
+    --expected-version 1.0.0 --user <user> --password <pass>
+```
 
 ### Release artifacts
 
@@ -101,8 +116,11 @@ package.
 
 - **`openrx-github`** — a Jenkins *Username with password* credential holding a
   GitHub token with **repo write** access, so the job can push the version commit
-  and the `v<version>` tag. (Create under Manage Jenkins → Credentials; the id
-  matches `GIT_CREDENTIALS` in `Jenkinsfile.release`.)
+  and the `v<version>` tag, and create the GitHub Release. (Create under Manage
+  Jenkins → Credentials; the id matches `GIT_CREDENTIALS` in `Jenkinsfile.release`.)
+- **`openrx-smoke`** — a Jenkins *Username with password* credential with a
+  production login used by the post-deploy smoke test (only when
+  `SMOKE_LOGIN=true`).
 - For `DEPLOY`: the same `DEPLOY_SSH_KEY` / `DEPLOY_SERVER` / `DEPLOY_REMOTE_DIR`
   the CI pipeline uses.
 

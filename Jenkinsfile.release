@@ -40,6 +40,12 @@ pipeline {
             description: 'Deploy the released backend after a successful build.')
         booleanParam(name: 'DRY_RUN', defaultValue: false,
             description: 'Do everything except commit/tag/push and deploy.')
+        string(name: 'SMOKE_BASE_URL', defaultValue: 'https://openrx.transtechologies.com',
+            description: 'Origin to smoke-test after deploy (SPA root + /api).')
+        booleanParam(name: 'SMOKE_LOGIN', defaultValue: true,
+            description: 'Use the openrx-smoke credential to exercise login + authenticated routes.')
+        booleanParam(name: 'SMOKE_ROLLBACK', defaultValue: false,
+            description: 'If the post-deploy smoke test fails, roll the backend back one release.')
     }
 
     environment {
@@ -47,6 +53,8 @@ pipeline {
         GIT_BRANCH = 'main'
         GIT_CREDENTIALS = 'openrx-github'
         GITHUB_REPO = 'harrington40/openrx-backend'
+        SMOKE_CREDENTIALS = 'openrx-smoke'
+        SMOKE_BASE_URL = "${params.SMOKE_BASE_URL}"
         DEPLOY_SERVER = "${env.DEPLOY_SERVER ?: 'dev@94.250.201.58'}"
         DEPLOY_REMOTE_DIR = "${env.DEPLOY_REMOTE_DIR ?: '/home/dev/openrx'}"
         DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/home/dev/.ssh/openrx-deploy'}"
@@ -355,6 +363,58 @@ pipeline {
                     fi
                     echo "Deployed $V to $DEPLOY_SERVER (backend + frontend from one build)"
                 '''
+            }
+        }
+
+        // POST-DEPLOY SMOKE. A release is not "done" until the running deploy
+        // answers: /config (with the released version), the SPA root + a
+        // referenced asset, a login, and key read-only routes. Fails the release
+        // otherwise; SMOKE_ROLLBACK=true rolls the backend back one release.
+        stage('Post-deploy smoke') {
+            when { expression { return params.DEPLOY && !params.DRY_RUN } }
+            steps {
+                script {
+                    try {
+                        if (params.SMOKE_LOGIN) {
+                            withCredentials([usernamePassword(credentialsId: env.SMOKE_CREDENTIALS,
+                                                              usernameVariable: 'SMOKE_USER',
+                                                              passwordVariable: 'SMOKE_PASS')]) {
+                                sh '''
+                                    set -e
+                                    python3 tools/release.py smoke \
+                                        --base-url "$SMOKE_BASE_URL" \
+                                        --expected-version "$RELEASE_VERSION" \
+                                        --user "$SMOKE_USER" --password "$SMOKE_PASS" \
+                                        --route /api/patients \
+                                        --route /api/appointments \
+                                        --route /api/providers
+                                '''
+                            }
+                        } else {
+                            echo "SMOKE_LOGIN=false — checking anonymously only"
+                            sh '''
+                                set -e
+                                python3 tools/release.py smoke \
+                                    --base-url "$SMOKE_BASE_URL" \
+                                    --expected-version "$RELEASE_VERSION"
+                            '''
+                        }
+                    } catch (err) {
+                        echo "POST-DEPLOY SMOKE FAILED for ${params.RELEASE_VERSION}: ${err}"
+                        if (params.SMOKE_ROLLBACK) {
+                            echo "SMOKE_ROLLBACK=true — rolling the backend back on ${env.DEPLOY_SERVER}"
+                            sh '''
+                                set -e
+                                ssh -i "$DEPLOY_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+                                    "$DEPLOY_SERVER" "cd $DEPLOY_REMOTE_DIR && ./deploy.sh --rollback --backend 1"
+                            '''
+                        } else {
+                            echo "Set SMOKE_ROLLBACK=true to roll back automatically, or run:"
+                            echo "  ssh <server> 'cd <dir> && ./deploy.sh --rollback --backend 1'"
+                        }
+                        throw err
+                    }
+                }
             }
         }
     }
