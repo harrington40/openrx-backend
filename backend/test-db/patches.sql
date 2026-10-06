@@ -161,3 +161,72 @@ CREATE TABLE IF NOT EXISTS documents_secure (
   KEY idx_uploader (uploaderUserId),
   KEY idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- Medication administration (MAR)
+-- ---------------------------------------------------------------------------
+-- MedicationAdministrationService.ensureSchema() creates these three tables at
+-- runtime (`CREATE TABLE IF NOT EXISTS` on boot), and the RN nursing workspace
+-- and the notification counts read them. They are reproduced here so a database
+-- built from this repository carries the schema explicitly — before the backend
+-- ever boots — matching the code's expected columns exactly. Every statement is
+-- idempotent, so this is a harmless no-op once the service has run.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS medication_administration_orders (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  pid            INT NOT NULL,
+  prescription_id INT NULL,
+  drug           VARCHAR(255) NOT NULL,
+  dose           VARCHAR(120) NULL,
+  dose_unit      VARCHAR(40) NULL,
+  route          VARCHAR(80) NULL,
+  frequency      VARCHAR(80) NULL,
+  interval_hours DECIMAL(6,2) NULL,
+  next_due_at    DATETIME NULL,
+  is_prn         TINYINT(1) NOT NULL DEFAULT 0,
+  high_alert     TINYINT(1) NOT NULL DEFAULT 0,
+  status         VARCHAR(20) NOT NULL DEFAULT 'active',
+  ordered_by     INT NULL,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NULL,
+  UNIQUE KEY uniq_mar_order_rx (pid, prescription_id),
+  INDEX idx_mar_order_pid (pid),
+  INDEX idx_mar_order_due (status, next_due_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS medication_administration_records (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  order_id         INT NOT NULL,
+  pid              INT NOT NULL,
+  status           VARCHAR(20) NOT NULL,
+  scheduled_at     DATETIME NULL,
+  administered_at  DATETIME NULL,
+  dose_given       VARCHAR(120) NULL,
+  administered_by  INT NULL,
+  witness_by       INT NULL,
+  site             VARCHAR(60) NULL,
+  notes            TEXT NULL,
+  override_reason  VARCHAR(255) NULL,
+  safety_json      MEDIUMTEXT NULL,
+  created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_mar_record_pid (pid),
+  INDEX idx_mar_record_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS medication_administration_alerts (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  pid          INT NOT NULL,
+  order_id     INT NULL,
+  assigned_to  INT NULL,
+  severity     VARCHAR(16) NOT NULL DEFAULT 'info',
+  kind         VARCHAR(40) NOT NULL,
+  title        VARCHAR(160) NOT NULL,
+  detail       TEXT NULL,
+  status       VARCHAR(20) NOT NULL DEFAULT 'New',
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at      DATETIME NULL,
+  INDEX idx_mar_alert_status (status),
+  INDEX idx_mar_alert_assigned (assigned_to),
+  INDEX idx_mar_alert_pid (pid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
