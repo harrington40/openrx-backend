@@ -84,7 +84,6 @@ export interface AdministrationInput {
 /** Default ± window (minutes) around a scheduled dose. */
 export const DEFAULT_WINDOW_MINUTES = 60;
 
-
 /**
  * ISMP high-alert medicines. Match is by normalised token so brand suffixes and
  * dosage forms ("Heparin Sodium 5000 units/mL") still resolve.
@@ -139,9 +138,22 @@ export const LASA_PAIRS: [string, string][] = [
     ['tramadol', 'trazodone'],
 ];
 
+/**
+ * Coerce loosely-typed input to a string without ever falling back to Object's
+ * "[object Object]" form (DB columns arrive as string | number | null).
+ */
+function toText(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+    }
+    return '';
+}
+
 /** Normalise a drug/allergen name for comparison. */
 export function normaliseDrug(name: unknown): string {
-    return String(name ?? '')
+    return toText(name)
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, ' ')
         .trim();
@@ -213,7 +225,7 @@ export function matchingAllergies(
 
 /** Does the dose string carry a quantity (a digit)? */
 export function doseHasQuantity(dose: unknown): boolean {
-    return /\d/.test(String(dose ?? ''));
+    return /\d/.test(toText(dose));
 }
 
 /**
@@ -237,9 +249,7 @@ export function parseFrequencyToHours(frequency: unknown): number | null {
         const n = Number(perDay[1]);
         if (Number.isFinite(n) && n > 0) return 24 / n;
     }
-    if (
-        /(once daily|every day|daily|qd|q24h|once a day|at bedtime)/.test(f)
-    )
+    if (/(once daily|every day|daily|qd|q24h|once a day|at bedtime)/.test(f))
         return 24;
     if (/(twice daily|twice a day|bid|b i d)/.test(f)) return 12;
     if (/(three times|tid|t i d)/.test(f)) return 8;
@@ -286,7 +296,6 @@ export function nextDueAt(
     if (!Number.isFinite(hours) || hours <= 0) return null;
     return new Date(base.getTime() + hours * 3600 * 1000);
 }
-
 
 /**
  * The smart check. Returns a verdict the controller turns into either a
@@ -446,4 +455,3 @@ export function evaluateAdministration(
         score: Math.min(100, score),
     };
 }
-

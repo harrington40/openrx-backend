@@ -135,38 +135,38 @@ export class NotificationsService implements OnModuleInit {
             patientFlow,
             medicationAdministration,
         ] = await Promise.all([
-                this.count(
-                    `SELECT COUNT(*) AS n FROM pnotes
+            this.count(
+                `SELECT COUNT(*) AS n FROM pnotes
           WHERE deleted = 0 AND message_status = 'New'
             AND groupname IN ('events', 'Default')`,
-                ),
-                this.count(
-                    `SELECT COUNT(*) AS n FROM pnotes
+            ),
+            this.count(
+                `SELECT COUNT(*) AS n FROM pnotes
           WHERE deleted = 0 AND groupname = 'referral'
             AND message_status IN ('pending', 'New')
             AND (? = 1 OR assigned_to = ? OR assigned_to = '' OR assigned_to IS NULL)`,
-                    [adminFlag, uid],
-                ),
-                this.count(
-                    `SELECT COUNT(*) AS n FROM drug_info_notifications
+                [adminFlag, uid],
+            ),
+            this.count(
+                `SELECT COUNT(*) AS n FROM drug_info_notifications
           WHERE status = 'New'
             AND (? = 1 OR assigned_to IS NULL OR assigned_to = '' OR assigned_to = ?)`,
-                    [adminFlag, uid],
-                ),
-                this.count(
-                    `SELECT COUNT(*) AS n FROM billing_holds
+                [adminFlag, uid],
+            ),
+            this.count(
+                `SELECT COUNT(*) AS n FROM billing_holds
           WHERE hold_type = 'pharmacy' AND cleared_at IS NULL`,
-                ),
-                this.count(
-                    `SELECT COUNT(*) AS n FROM patient_tracker WHERE DATE(date) = CURDATE()`,
-                ),
-                this.count(
-                    `SELECT COUNT(*) AS n FROM medication_administration_alerts
+            ),
+            this.count(
+                `SELECT COUNT(*) AS n FROM patient_tracker WHERE DATE(date) = CURDATE()`,
+            ),
+            this.count(
+                `SELECT COUNT(*) AS n FROM medication_administration_alerts
           WHERE status = 'New'
             AND (? = 1 OR assigned_to IS NULL OR assigned_to = 0 OR assigned_to = ?)`,
-                    [adminFlag, uid],
-                ),
-            ]);
+                [adminFlag, uid],
+            ),
+        ]);
 
         return {
             messages,

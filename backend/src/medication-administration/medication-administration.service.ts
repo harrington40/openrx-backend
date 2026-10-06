@@ -340,7 +340,6 @@ export class MedicationAdministrationService implements OnModuleInit {
         };
     }
 
-
     /**
      * Build/refresh one MAR order per active prescription. Returns the orders so
      * the caller can notify on the high-alert ones.
@@ -462,7 +461,6 @@ export class MedicationAdministrationService implements OnModuleInit {
         return raised;
     }
 
-
     /** Discharge: stop the running MAR orders and clear the bed. */
     async discharge(pid: number, actor: MarActor = {}) {
         const existing = await this.getAssignment(pid);
@@ -511,7 +509,9 @@ export class MedicationAdministrationService implements OnModuleInit {
             [orderId],
         );
         if (!order) {
-            throw new NotFoundException(`Medication order #${orderId} not found`);
+            throw new NotFoundException(
+                `Medication order #${orderId} not found`,
+            );
         }
 
         const [patient] = await this.dataSource.query<PatientRow[]>(
@@ -623,7 +623,6 @@ export class MedicationAdministrationService implements OnModuleInit {
         };
     }
 
-
     // ── Read models ──────────────────────────────────────────────────────────
 
     /** All MAR orders for a patient, newest due first. */
@@ -684,7 +683,8 @@ export class MedicationAdministrationService implements OnModuleInit {
                 minutes_until: status.minutesUntil,
                 high_alert: o.high_alert === 1,
                 is_prn: o.is_prn === 1,
-                is_assigned: Number((o as { is_assigned?: number }).is_assigned) || 0,
+                is_assigned:
+                    Number((o as { is_assigned?: number }).is_assigned) || 0,
             };
         };
 
@@ -728,9 +728,8 @@ export class MedicationAdministrationService implements OnModuleInit {
             [isAdmin ? 1 : 0, nurseId],
         );
         return {
-            unread: rows.filter(
-                (r) => String(r.status).toLowerCase() === 'new',
-            ).length,
+            unread: rows.filter((r) => String(r.status).toLowerCase() === 'new')
+                .length,
             alerts: rows,
         };
     }
@@ -757,4 +756,3 @@ export class MedicationAdministrationService implements OnModuleInit {
         return { updated: true };
     }
 }
-

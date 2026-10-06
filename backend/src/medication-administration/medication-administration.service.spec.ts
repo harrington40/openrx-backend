@@ -63,9 +63,13 @@ describe('MedicationAdministrationService', () => {
                             prn: null,
                         },
                     ];
-                if (sql.includes('INSERT INTO medication_administration_orders'))
+                if (
+                    sql.includes('INSERT INTO medication_administration_orders')
+                )
                     return { insertId: orderId++ };
-                if (sql.includes('INSERT INTO medication_administration_alerts'))
+                if (
+                    sql.includes('INSERT INTO medication_administration_alerts')
+                )
                     return { insertId: 1 };
                 return { affectedRows: 1, insertId: 0 };
             });
@@ -169,7 +173,11 @@ describe('MedicationAdministrationService', () => {
                 await service(dataSource)
             ).recordAdministration(
                 5,
-                { patientId: 17, overrideReason: 'Allergy history reviewed — tolerated previously.' },
+                {
+                    patientId: 17,
+                    overrideReason:
+                        'Allergy history reviewed — tolerated previously.',
+                },
                 { id: 12 },
             );
 
@@ -177,9 +185,8 @@ describe('MedicationAdministrationService', () => {
             expect(result.verdict.decision).toBe('block');
             expect(result.verdict.requiresOverride).toBe(true);
             expect(
-                queries.some(
-                    (q) =>
-                        q.includes('INSERT INTO medication_administration_records'),
+                queries.some((q) =>
+                    q.includes('INSERT INTO medication_administration_records'),
                 ),
             ).toBe(true);
             expect(
@@ -199,7 +206,9 @@ describe('MedicationAdministrationService', () => {
                 }
                 if (sql.includes('FROM lists')) return [];
                 if (
-                    sql.includes('INSERT INTO medication_administration_records')
+                    sql.includes(
+                        'INSERT INTO medication_administration_records',
+                    )
                 )
                     return { insertId: 88 };
                 return { affectedRows: 1, insertId: 0 };
@@ -215,11 +224,9 @@ describe('MedicationAdministrationService', () => {
 
             expect(result.verdict.decision).toBe('proceed');
             expect(result.nextDueAt).toBeInstanceOf(Date);
-            expect(
-                queries.some((q) =>
-                    q.includes('SET next_due_at = ?'),
-                ),
-            ).toBe(true);
+            expect(queries.some((q) => q.includes('SET next_due_at = ?'))).toBe(
+                true,
+            );
             // No override notice for a clean administration.
             expect(
                 queries.some((q) =>
@@ -243,7 +250,11 @@ describe('MedicationAdministrationService', () => {
                 await service(dataSource)
             ).discharge(17, { id: 99 });
 
-            expect(result).toMatchObject({ pid: 17, room: null, stoppedOrders: 3 });
+            expect(result).toMatchObject({
+                pid: 17,
+                room: null,
+                stoppedOrders: 3,
+            });
             expect(
                 queries.some((q) =>
                     q.includes('INSERT INTO medication_administration_alerts'),

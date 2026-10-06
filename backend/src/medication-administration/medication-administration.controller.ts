@@ -98,7 +98,11 @@ export class MedicationAdministrationController {
         @Body() dto: AdministrationDto,
         @Req() req: MarRequest,
     ) {
-        return this.mar.recordAdministration(+id, dto || { patientId: 0 }, actor(req));
+        return this.mar.recordAdministration(
+            +id,
+            dto || { patientId: 0 },
+            actor(req),
+        );
     }
 
     /** Medication-administration notifications for the signed-in user. */

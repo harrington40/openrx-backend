@@ -112,9 +112,9 @@ describe('schedule status', () => {
     });
 
     it('computes the next due time from an interval', () => {
-        expect(
-            nextDueAt('2026-01-01T08:00:00Z', 12)?.toISOString(),
-        ).toBe('2026-01-01T20:00:00.000Z');
+        expect(nextDueAt('2026-01-01T08:00:00Z', 12)?.toISOString()).toBe(
+            '2026-01-01T20:00:00.000Z',
+        );
         expect(nextDueAt('2026-01-01T08:00:00Z', null)).toBeNull();
     });
 });
@@ -235,4 +235,3 @@ describe('evaluateAdministration', () => {
         expect(v.issues.length).toBeGreaterThanOrEqual(3);
     });
 });
-
