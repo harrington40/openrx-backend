@@ -81,6 +81,17 @@ SPECS = [
         "coverage_json": ARTIFACTS / "jest-coverage-summary.json",
     },
     {
+        "id": "frontend-unit",
+        "name": "Frontend unit / component tests",
+        "kind": "component",
+        "framework": "Vitest + Testing Library",
+        "lang": "TypeScript/React",
+        "path": "interface/new/src/test",
+        "desc": "Rendered components, utilities, clinical logic",
+        "vitest_json": ARTIFACTS / "vitest-results.json",
+        "coverage_json": ARTIFACTS / "vitest-coverage-summary.json",
+    },
+    {
         "id": "api-contract",
         "name": "API contract & domain tests",
         "kind": "contract",
@@ -92,6 +103,21 @@ SPECS = [
         "collect": {
             "cwd": ROOT / "backend/tests/api-tests",
             "venv": ROOT / "backend/tests/api-tests/.venv/bin/python",
+        },
+    },
+    {
+        "id": "ui",
+        "name": "UI tests (browser)",
+        "kind": "ui",
+        "framework": "Playwright + pytest",
+        "lang": "Python",
+        "path": "tests/ui-tests",
+        "desc": "Route render, auth, DICOM, role dashboards",
+        "junit": ROOT / "tests/ui-tests/pytest-results.xml",
+        "collect": {
+            "cwd": ROOT / "tests/ui-tests",
+            "venv": ROOT / "tests/ui-tests/.venv/bin/python",
+            "target": [],
         },
     },
 ]

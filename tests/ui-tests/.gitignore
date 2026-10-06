@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Playwright
+test-results/
+playwright-report/
+
+# pytest reports (Jenkins publishes/archives these; never committed)
+pytest-results.xml
+pytest-report.html

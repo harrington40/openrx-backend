@@ -103,6 +103,11 @@ pipeline {
         DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/home/dev/.ssh/openrx-deploy'}"
     }
 
+    parameters {
+        booleanParam(name: 'RUN_UI_TESTS', defaultValue: false,
+            description: 'Build the SPA and run the Vitest + Playwright UI suites. Adds several minutes and needs a browser-capable agent.')
+    }
+
     /*
      * Run automatically approximately every 35 minutes.
      * Jenkins hashes the starting minute so jobs are distributed.
@@ -153,13 +158,12 @@ pipeline {
 
         /*
          * ==========================================
-         * OPENEMR BACKEND
+         * OPENEMR BACKEND (+ SPA tests)
          * ==========================================
-         * This pipeline concerns backend/ only: that is the application which is
-         * built, deployed, run and tested here. The React SPA in interface/new
-         * (which builds into the repository-root public/dist) is deliberately
-         * excluded — build and ship it separately, as
-         * deploy/deploy-local.sh --frontend does.
+         * The backend/ is built, deployed and tested here. The React SPA in
+         * interface/new is also built and tested when RUN_UI_TESTS is enabled
+         * (Vitest unit tests + the Playwright UI sweep); the backend deploy
+         * stage still ships backend/ only.
          */
 
         stage('Backend - Install') {
@@ -219,6 +223,24 @@ pipeline {
                         npm run build
                     '''
                 }
+            }
+        }
+
+        // SPA unit/component tests (Vitest). Opt in with RUN_UI_TESTS: it adds a
+        // full `npm ci` of the frontend to every build.
+        stage('Frontend - Unit Tests') {
+            when { expression { return params.RUN_UI_TESTS } }
+            steps {
+                sh '''
+                    set -e
+                    cd interface/new
+                    echo "Installing SPA dependencies..."
+                    npm ci --no-audit --no-fund
+                    echo "Running SPA unit/component tests..."
+                    mkdir -p "$WORKSPACE/tests/reliability-artifacts"
+                    npx vitest run --reporter=json \
+                        --outputFile="$WORKSPACE/tests/reliability-artifacts/vitest-results.json"
+                '''
             }
         }
 
@@ -539,6 +561,56 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
             }
         }
 
+        // Browser UI sweep (Playwright). Opt in with RUN_UI_TESTS. Builds the
+        // SPA, serves it with `vite preview`, and runs the suite in
+        // tests/ui-tests. Authenticated cases mint a session from the test API
+        // (set UI_API_URL at the running backend); without it they skip.
+        stage('UI sweep (Playwright)') {
+            when { expression { return params.RUN_UI_TESTS } }
+            steps {
+                sh '''
+                    set -e
+
+                    # 1. Build and serve the SPA.
+                    (
+                        cd interface/new
+                        npm ci --no-audit --no-fund
+                        npm run build
+                    )
+                    nohup npx --prefix interface/new vite preview \
+                        --config interface/new/vite.config.ts \
+                        --port 5173 --strictPort > "$WORKSPACE/ui-preview.log" 2>&1 &
+                    echo $! > "$WORKSPACE/ui-preview.pid"
+                    UI_PID="$(cat "$WORKSPACE/ui-preview.pid")"
+                    trap 'kill "$UI_PID" 2>/dev/null || true' EXIT
+
+                    for i in $(seq 1 60); do
+                        curl -fsS http://localhost:5173/ >/dev/null 2>&1 && break
+                        if [ "$i" -eq 60 ]; then
+                            echo "SPA preview did not come up; last log lines:"
+                            tail -40 "$WORKSPACE/ui-preview.log" || true
+                            exit 1
+                        fi
+                        sleep 1
+                    done
+                    echo "SPA served at http://localhost:5173"
+
+                    # 2. Run the Playwright suite against it.
+                    cd tests/ui-tests
+                    python3 -m venv .venv
+                    .venv/bin/python -m pip install --quiet --upgrade pip
+                    .venv/bin/python -m pip install --quiet -r requirements.txt
+                    .venv/bin/python -m playwright install chromium \
+                        || .venv/bin/python -m playwright install --with-deps chromium
+
+                    UI_BASE_URL="http://localhost:5173" \
+                    UI_API_URL="http://localhost:${TEST_API_PORT}/api" \
+                    UI_TOKEN="${UI_TOKEN:-}" \
+                        .venv/bin/python -m pytest -q --junitxml=pytest-results.xml
+                '''
+            }
+        }
+
         /*
          * ==========================================
          * DEPLOY THE BACKEND APPLICATION
@@ -609,7 +681,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
             // Keep the backend log and the pytest report around: without them a
             // failed build says only that some step returned non-zero.
             archiveArtifacts(
-                artifacts: 'backend-test-server.log, backend/tests/api-tests/pytest-results.xml, tests/reliability-artifacts/**, reliability-report/**',
+                artifacts: 'backend-test-server.log, backend/tests/api-tests/pytest-results.xml, tests/ui-tests/pytest-results.xml, tests/reliability-artifacts/**, reliability-report/**',
                 allowEmptyArchive: true,
                 fingerprint: false,
             )
@@ -650,7 +722,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
 
             // Show pass/fail in the build's Test Result summary.
             junit allowEmptyResults: true,
-                  testResults: 'backend/tests/api-tests/pytest-results.xml'
+                  testResults: 'backend/tests/api-tests/pytest-results.xml, tests/ui-tests/pytest-results.xml'
 
             // Publish the self-contained reliability page via the HTML Publisher
             // plugin and put the index on the build description. Wrapped so a
