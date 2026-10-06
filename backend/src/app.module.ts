@@ -36,6 +36,7 @@ import { InpatientModule } from './inpatient/inpatient.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MailboxModule } from './mailbox/mailbox.module';
 import { EmergencyModule } from './emergency/emergency.module';
+import { MedicationAdministrationModule } from './medication-administration/medication-administration.module';
 
 @Module({
     controllers: [AppConfigController],
@@ -101,6 +102,7 @@ import { EmergencyModule } from './emergency/emergency.module';
 
         LicenseModule,
         NursingModule,
+        MedicationAdministrationModule,
         PatientChatModule,
         ReferralsModule,
         InventoryModule,

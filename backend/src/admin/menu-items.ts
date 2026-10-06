@@ -72,6 +72,11 @@ export const MENU_ITEMS: MenuItemDef[] = [
     { key: '/drug-info', label: 'Drug Info', section: 'Clinical' },
     { key: '/templates', label: 'Templates', section: 'Clinical' },
     { key: '/pharmacy', label: 'Pharmacy', section: 'Clinical' },
+    {
+        key: '/medication-administration',
+        label: 'Medication Administration',
+        section: 'Clinical',
+    },
 
     { key: '/messages', label: 'Inbox', section: 'Messaging' },
     {

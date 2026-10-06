@@ -127,8 +127,14 @@ export class NotificationsService implements OnModuleInit {
         const adminFlag = user?.role === 'admin' ? 1 : 0;
         const uid = String(userId);
 
-        const [messages, referrals, drugInfo, pharmacy, patientFlow] =
-            await Promise.all([
+        const [
+            messages,
+            referrals,
+            drugInfo,
+            pharmacy,
+            patientFlow,
+            medicationAdministration,
+        ] = await Promise.all([
                 this.count(
                     `SELECT COUNT(*) AS n FROM pnotes
           WHERE deleted = 0 AND message_status = 'New'
@@ -154,6 +160,12 @@ export class NotificationsService implements OnModuleInit {
                 this.count(
                     `SELECT COUNT(*) AS n FROM patient_tracker WHERE DATE(date) = CURDATE()`,
                 ),
+                this.count(
+                    `SELECT COUNT(*) AS n FROM medication_administration_alerts
+          WHERE status = 'New'
+            AND (? = 1 OR assigned_to IS NULL OR assigned_to = 0 OR assigned_to = ?)`,
+                    [adminFlag, uid],
+                ),
             ]);
 
         return {
@@ -162,6 +174,7 @@ export class NotificationsService implements OnModuleInit {
             drugInfo,
             pharmacy,
             patientFlow,
+            medicationAdministration,
             generatedAt: new Date().toISOString(),
         };
     }

@@ -9,6 +9,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { SmartRoutingService } from './smart-routing.service';
 import type { RoutingDecision, RoutingVitals } from './smart-routing.service';
+import { MedicationAdministrationService } from '../medication-administration/medication-administration.service';
 
 export interface NoteAuthor {
     id?: number;
@@ -104,6 +105,7 @@ export class NursingService implements OnModuleInit {
     constructor(
         @InjectDataSource() private readonly dataSource: DataSource,
         private readonly routing: SmartRoutingService,
+        private readonly mar: MedicationAdministrationService,
     ) {}
 
     async onModuleInit(): Promise<void> {
@@ -285,7 +287,27 @@ export class NursingService implements OnModuleInit {
             (n) => n.message_status === 'New',
         ).length;
 
-        return { nurse, patients, assignedPatients, sharedNotes, unreadCount };
+        // Medication-administration board for hospitalized patients. Kept
+        // resilient so a MAR failure cannot blank out the whole ward view.
+        let medicationAdministration: Awaited<
+            ReturnType<MedicationAdministrationService['getDashboard']>
+        > | null = null;
+        try {
+            medicationAdministration = await this.mar.getDashboard(nurseId);
+        } catch (err) {
+            this.logger.warn(
+                `Medication-administration board unavailable: ${(err as Error).message}`,
+            );
+        }
+
+        return {
+            nurse,
+            patients,
+            assignedPatients,
+            sharedNotes,
+            unreadCount,
+            medicationAdministration,
+        };
     }
 
     async markNoteRead(
