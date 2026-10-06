@@ -103,18 +103,21 @@ pipeline {
         DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/home/dev/.ssh/openrx-deploy'}"
     }
 
-    parameters {
-        booleanParam(name: 'RUN_UI_TESTS', defaultValue: false,
-            description: 'Build the SPA and run the Vitest + Playwright UI suites. Adds several minutes and needs a browser-capable agent.')
-    }
-
     /*
-     * Run automatically approximately every 35 minutes.
-     * Jenkins hashes the starting minute so jobs are distributed.
+     * Scheduling and the RUN_UI_TESTS default are intentionally NOT declared
+     * here — they are owned by the JOB so the same Jenkinsfile can drive two
+     * jobs with different cadences:
+     *
+     *   OpenRx-CI       every 35 minutes   RUN_UI_TESTS=false
+     *   OpenRx-Nightly  once per night      RUN_UI_TESTS=true
+     *
+     * A `triggers { cron(...) }` block here would force BOTH jobs onto one
+     * schedule, and a Jenkinsfile `parameters` block owns the parameter
+     * default (it cannot differ per job). So each job defines its own
+     * "Build periodically" trigger and its own RUN_UI_TESTS parameter (or
+     * environment variable). The stages below honour either. See
+     * jenkins/jobs.groovy for a Job DSL definition of both jobs.
      */
-    triggers {
-        cron('H/35 * * * *')
-    }
 
     stages {
 
@@ -229,7 +232,7 @@ pipeline {
         // SPA unit/component tests (Vitest). Opt in with RUN_UI_TESTS: it adds a
         // full `npm ci` of the frontend to every build.
         stage('Frontend - Unit Tests') {
-            when { expression { return params.RUN_UI_TESTS } }
+            when { expression { return params.RUN_UI_TESTS == true || env.RUN_UI_TESTS == 'true' } }
             steps {
                 sh '''
                     set -e
@@ -566,7 +569,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
         // throwaway test database, mints a session token, and runs the suite in
         // tests/ui-tests — so the authenticated/role cases actually execute.
         stage('UI sweep (Playwright)') {
-            when { expression { return params.RUN_UI_TESTS } }
+            when { expression { return params.RUN_UI_TESTS == true || env.RUN_UI_TESTS == 'true' } }
             steps {
                 sh '''
                     set -e
