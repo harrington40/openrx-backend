@@ -562,14 +562,23 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
         }
 
         // Browser UI sweep (Playwright). Opt in with RUN_UI_TESTS. Builds the
-        // SPA, serves it with `vite preview`, and runs the suite in
-        // tests/ui-tests. Authenticated cases mint a session from the test API
-        // (set UI_API_URL at the running backend); without it they skip.
+        // SPA, serves it with `vite preview`, boots the backend against the
+        // throwaway test database, mints a session token, and runs the suite in
+        // tests/ui-tests — so the authenticated/role cases actually execute.
         stage('UI sweep (Playwright)') {
             when { expression { return params.RUN_UI_TESTS } }
             steps {
                 sh '''
                     set -e
+
+                    UI_BACKEND_LOG="$WORKSPACE/ui-backend.log"
+                    UI_PID=""
+                    UI_BACKEND_PID=""
+                    cleanup_ui() {
+                        [ -n "$UI_PID" ] && kill "$UI_PID" 2>/dev/null || true
+                        [ -n "$UI_BACKEND_PID" ] && kill "$UI_BACKEND_PID" 2>/dev/null || true
+                    }
+                    trap cleanup_ui EXIT
 
                     # 1. Build and serve the SPA.
                     (
@@ -577,13 +586,13 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
                         npm ci --no-audit --no-fund
                         npm run build
                     )
-                    nohup npx --prefix interface/new vite preview \
-                        --config interface/new/vite.config.ts \
-                        --port 5173 --strictPort > "$WORKSPACE/ui-preview.log" 2>&1 &
-                    echo $! > "$WORKSPACE/ui-preview.pid"
+                    (
+                        cd interface/new
+                        nohup npx vite preview --port 5173 --strictPort \
+                            > "$WORKSPACE/ui-preview.log" 2>&1 &
+                        echo $! > "$WORKSPACE/ui-preview.pid"
+                    )
                     UI_PID="$(cat "$WORKSPACE/ui-preview.pid")"
-                    trap 'kill "$UI_PID" 2>/dev/null || true' EXIT
-
                     for i in $(seq 1 60); do
                         curl -fsS http://localhost:5173/ >/dev/null 2>&1 && break
                         if [ "$i" -eq 60 ]; then
@@ -595,7 +604,53 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
                     done
                     echo "SPA served at http://localhost:5173"
 
-                    # 2. Run the Playwright suite against it.
+                    # 2. Boot the backend against the throwaway test database so
+                    #    the authenticated UI cases can mint a session. Same env
+                    #    as the API-tests stage; the DB tunnel is already open.
+                    echo "Booting the backend against $TEST_DB_NAME on :$TEST_API_PORT"
+                    (
+                        cd backend
+                        export PORT="$TEST_API_PORT"
+                        export DB_HOST="$DB_HOST"
+                        export DB_PORT="$DB_PORT"
+                        export DB_USERNAME="$TEST_DB_USER"
+                        export DB_PASSWORD="$TEST_DB_PASSWORD"
+                        export DB_DATABASE="$TEST_DB_NAME"
+                        export DB_LOGGING=false
+                        export JWT_SECRET="openrx-test-jwt-secret-not-for-any-real-deployment"
+                        export LICENSE_SECRETS="1:openrx-test-license-secret-not-for-real-use"
+                        export LICENSE_GENERATOR_PASSPHRASE_HASH="5601e6dfd8ee13137d54ea1ca5df6bb9d2fa66c785400313feefda397d5fdca8"
+                        nohup node dist/main.js > "$UI_BACKEND_LOG" 2>&1 &
+                        echo $! > "$WORKSPACE/ui-backend.pid"
+                    )
+                    UI_BACKEND_PID="$(cat "$WORKSPACE/ui-backend.pid")"
+
+                    API_URL="http://localhost:$TEST_API_PORT/api"
+                    echo "Waiting for $API_URL/config ..."
+                    for i in $(seq 1 300); do
+                        curl -fsS "$API_URL/config" >/dev/null 2>&1 && break
+                        if [ "$i" -eq 300 ]; then
+                            echo "Backend failed to start; last log lines:"
+                            tail -40 "$UI_BACKEND_LOG" || true
+                            exit 1
+                        fi
+                        sleep 1
+                    done
+
+                    echo "Obtaining a session token as the seeded administrator"
+                    TOKEN="$(python3 -c "
+import json, urllib.request
+req = urllib.request.Request(
+    '$API_URL/auth/login',
+    data=json.dumps({'username': 'admin', 'password': 'OpenRxTest123'}).encode(),
+    headers={'Content-Type': 'application/json'},
+)
+print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
+")"
+                    [ -n "$TOKEN" ] || { echo "UI: login returned no token"; exit 1; }
+                    echo "UI: obtained a token (${#TOKEN} characters)"
+
+                    # 3. Run the Playwright suite against the SPA + backend.
                     cd tests/ui-tests
                     python3 -m venv .venv
                     .venv/bin/python -m pip install --quiet --upgrade pip
@@ -604,8 +659,8 @@ print(json.load(urllib.request.urlopen(req, timeout=20))['token'])
                         || .venv/bin/python -m playwright install --with-deps chromium
 
                     UI_BASE_URL="http://localhost:5173" \
-                    UI_API_URL="http://localhost:${TEST_API_PORT}/api" \
-                    UI_TOKEN="${UI_TOKEN:-}" \
+                    UI_API_URL="$API_URL" \
+                    UI_TOKEN="$TOKEN" \
                         .venv/bin/python -m pytest -q --junitxml=pytest-results.xml
                 '''
             }
