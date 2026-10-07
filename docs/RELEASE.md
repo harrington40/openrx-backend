@@ -121,10 +121,13 @@ package.
 
 ## Credentials the release job needs
 
-- **`openrx-github`** — a Jenkins *Username with password* credential holding a
-  GitHub token with **repo write** access, so the job can push the version commit
-  and the `v<version>` tag, and create the GitHub Release. (Create under Manage
-  Jenkins → Credentials; the id matches `GIT_CREDENTIALS` in `Jenkinsfile.release`.)
+- **GitHub push credential** — a Jenkins *Username with password* credential
+  holding a GitHub token with **repo write** access, so the job can push the
+  version commit and the `v<version>` tag, and create the GitHub Release.
+  `Jenkinsfile.release` sets `GIT_CREDENTIALS` to `github-credentials` by default
+  (the id this instance already uses for the SCM checkout); set the
+  `GIT_CREDENTIALS` job env var to point at a different id (e.g. a dedicated
+  `openrx-github`).
 - **`openrx-smoke`** — a Jenkins *Username with password* credential with a
   production login used by the post-deploy smoke test (only when
   `SMOKE_LOGIN=true`).

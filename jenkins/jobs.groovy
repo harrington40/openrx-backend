@@ -81,7 +81,8 @@ job('OpenRx-Nightly') {
 job('OpenRx-Release') {
     description('OpenRx customer release — manual. Validates a semver version, runs the ' +
                 'test gate, stamps + builds, packages artifacts, tags v<version>, and ' +
-                'optionally deploys. Needs the `openrx-github` credential to push.')
+                'optionally deploys. Pushes with the `github-credentials` credential ' +
+                '(override with the GIT_CREDENTIALS job env var).')
     parameters {
         stringParam('RELEASE_VERSION', '', 'Version to release, semver, e.g. 1.4.0 (required).')
         booleanParam('RUN_TESTS', true, 'Run the backend unit tests + build as a release gate.')

@@ -11,9 +11,10 @@
 //
 // Job config (Job → Configure):
 //   * SCM: this repo, Script Path: Jenkinsfile.release
-//   * a "Username with password" credential id `openrx-github` (a GitHub token
-//     with repo write access) so the release can commit the version bump and
-//     push the tag.
+//   * a "Username with password" credential (a GitHub token with repo write
+//     access) so the release can commit the version bump and push the tag.
+//     Defaults to `github-credentials`; override with the `GIT_CREDENTIALS`
+//     job env var / parameter.
 //   * for DEPLOY: the same DEPLOY_* settings as the CI pipeline.
 pipeline {
     agent any
@@ -53,9 +54,14 @@ pipeline {
     environment {
         GIT_URL = 'github.com/harrington40/openrx-backend.git'
         GIT_BRANCH = 'main'
-        GIT_CREDENTIALS = 'openrx-github'
+        // Credential used to push the version commit/tag and create the GitHub
+        // Release. Defaults to the credential this Jenkins already uses for the
+        // repo checkout (`github-credentials`); point GIT_CREDENTIALS at a
+        // different id (e.g. a dedicated `openrx-github`) to override.
+        GIT_CREDENTIALS = "${env.GIT_CREDENTIALS ?: 'github-credentials'}"
         GITHUB_REPO = 'harrington40/openrx-backend'
-        SMOKE_CREDENTIALS = 'openrx-smoke'
+        // Same override pattern for the post-deploy smoke login credential.
+        SMOKE_CREDENTIALS = "${env.SMOKE_CREDENTIALS ?: 'openrx-smoke'}"
         SMOKE_BASE_URL = "${params.SMOKE_BASE_URL}"
         DEPLOY_SERVER = "${env.DEPLOY_SERVER ?: 'dev@94.250.201.58'}"
         DEPLOY_REMOTE_DIR = "${env.DEPLOY_REMOTE_DIR ?: '/home/dev/openrx'}"
@@ -338,7 +344,7 @@ pipeline {
 
         // Publish a GitHub Release for the tag, using the same release notes the
         // package contains (release/RELEASE_NOTES-<version>.md). Needs a GitHub
-        // token with `repo` scope (the `openrx-github` credential). Skipped in
+        // token with `repo` scope (the `GIT_CREDENTIALS` credential). Skipped in
         // DRY_RUN or when PUSH_TAG=false.
         stage('GitHub release') {
             when { expression { return params.GITHUB_RELEASE && params.PUSH_TAG && !params.DRY_RUN } }
