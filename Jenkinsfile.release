@@ -333,9 +333,15 @@ pipeline {
                         fi
 
                         git tag -a "v$RELEASE_VERSION" -m "OpenRx $RELEASE_VERSION" || true
-                        git remote set-url origin "https://$GIT_USER:$GIT_TOKEN@$GIT_URL"
-                        git push origin "HEAD:$GIT_BRANCH"
-                        git push origin "v$RELEASE_VERSION"
+
+                        # Authenticate with an Authorization header, never by embedding
+                        # the credential in the URL: a GitHub token / password can contain
+                        # characters (@ : /) that break git's URL parser with "Port number
+                        # was not a decimal number between 0 and 65535".
+                        AUTH_HEADER="Authorization: Basic $(printf '%s:%s' "$GIT_USER" "$GIT_TOKEN" | base64 | tr -d '\n')"
+                        git remote set-url origin "https://$GIT_URL"
+                        git -c http.extraheader="$AUTH_HEADER" push origin "HEAD:$GIT_BRANCH"
+                        git -c http.extraheader="$AUTH_HEADER" push origin "v$RELEASE_VERSION"
                         echo "Released v$RELEASE_VERSION"
                     '''
                 }
