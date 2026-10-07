@@ -63,8 +63,9 @@ artifacts — never rebuilds) → `Post-deploy smoke` (gated). Artifacts are arc
 from `release/**`.
 
 The **`GitHub release`** stage creates a GitHub Release for the pushed tag
-`v<version>`, using `release/RELEASE_NOTES-<version>.md` as its body and
-uploading `openrx-<version>.tar.gz` + `BUILD_INFO.json` as release assets
+`v<version>`, using `release/openrx-<version>/RELEASE_NOTES-<version>.md` as its
+body and uploading `release/openrx-<version>.tar.gz` +
+`release/openrx-<version>/BUILD_INFO.json` as release assets
 (`tools/release.py github-release`, idempotent). It is skipped in `DRY_RUN`, when
 `PUSH_TAG=false`, or when `GITHUB_RELEASE=false`.
 
@@ -88,8 +89,8 @@ python3 tools/release.py smoke --base-url https://openrx.transtechologies.com \
 release/openrx-<version>.tar.gz            # canonical customer package
 release/openrx-backend-<version>.tar.gz    # backend dist/ (server deploy.sh --backend)
 release/openrx-frontend-<version>.tar.gz   # SPA dist/ (server deploy.sh --frontend)
-release/RELEASE_NOTES-<version>.md
-release/BUILD_INFO.json
+release/openrx-<version>/RELEASE_NOTES-<version>.md   # body of the GitHub Release
+release/openrx-<version>/BUILD_INFO.json              # uploaded as a release asset
 ```
 
 The canonical package mirrors the production layout (the backend is API-only;

@@ -410,7 +410,7 @@ pipeline {
         }
 
         // Publish a GitHub Release for the tag, using the same release notes the
-        // package contains (release/RELEASE_NOTES-<version>.md). Needs a GitHub
+        // package contains (release/openrx-<version>/RELEASE_NOTES-<version>.md). Needs a GitHub
         // token with `repo` scope (the `GIT_CREDENTIALS` credential). Skipped in
         // DRY_RUN or when PUSH_TAG=false.
         stage('GitHub release') {
