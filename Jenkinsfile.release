@@ -115,6 +115,25 @@ pipeline {
                     withEnv(["RELEASE_VERSION=${version}"]) {
                         sh '''
                             set -e
+                            # A release whose push failed can leave a LOCAL-ONLY tag
+                            # (e.g. v1.4.0) in this reused workspace. It was never
+                            # published, so it must neither block the check nor be
+                            # pushed as-is (it points at the old failed commit). Drop
+                            # it when the remote does not have it; a tag that IS on the
+                            # remote is left alone so the check fails correctly.
+                            set +e
+                            git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null 2>&1
+                            rc=$?
+                            set -e
+                            if [ "$rc" -eq 2 ]; then
+                                echo "[release] pruning stale local-only tag v$RELEASE_VERSION"
+                                git tag -d "v$RELEASE_VERSION" || true
+                            elif [ "$rc" -eq 0 ]; then
+                                echo "[release] v$RELEASE_VERSION already exists on the remote"
+                            else
+                                echo "[release] could not query origin (rc=$rc); leaving tags as-is"
+                            fi
+
                             python3 tools/release.py check "$RELEASE_VERSION"
                             echo "RELEASE_VERSION=$RELEASE_VERSION"
                         '''
