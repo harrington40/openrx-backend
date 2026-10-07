@@ -422,13 +422,17 @@ pipeline {
                     sh '''
                         set -e
                         export GITHUB_TOKEN="$GIT_TOKEN"
+                        # The release notes + BUILD_INFO live INSIDE the assembled
+                        # package dir (release/openrx-<version>/...), not at the top
+                        # of release/. The tarball is the only artifact at release/.
+                        PKG="release/openrx-$RELEASE_VERSION"
                         python3 tools/release.py github-release \
                             --repo "$GITHUB_REPO" \
                             --tag "v$RELEASE_VERSION" \
                             --name "OpenRx $RELEASE_VERSION" \
-                            --notes-file "release/RELEASE_NOTES-$RELEASE_VERSION.md" \
+                            --notes-file "$PKG/RELEASE_NOTES-$RELEASE_VERSION.md" \
                             --asset "release/openrx-$RELEASE_VERSION.tar.gz" \
-                            --asset "release/BUILD_INFO.json"
+                            --asset "$PKG/BUILD_INFO.json"
                     '''
                 }
             }
