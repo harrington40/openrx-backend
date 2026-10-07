@@ -11,8 +11,12 @@ describe('App', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('OpenRx')).toBeInTheDocument();
-    expect(screen.getByText('Electronic Prescription & Health Records')).toBeInTheDocument();
+    // The brand + tagline appear twice (desktop marketing panel and the mobile
+    // card), so assert at least one of each rather than a single exact match.
+    expect(screen.getAllByText('OpenRx Health').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText('Electronic Prescription & Health Records').length,
+    ).toBeGreaterThan(0);
   });
 
   it('shows sign in button on login page', () => {
@@ -22,6 +26,8 @@ describe('App', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Sign In with OpenRx')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /sign in/i }),
+    ).toBeInTheDocument();
   });
 });
