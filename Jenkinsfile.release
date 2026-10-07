@@ -353,14 +353,56 @@ pipeline {
 
                         git tag -a "v$RELEASE_VERSION" -m "OpenRx $RELEASE_VERSION" || true
 
-                        # Authenticate with an Authorization header, never by embedding
-                        # the credential in the URL: a GitHub token / password can contain
-                        # characters (@ : /) that break git's URL parser with "Port number
-                        # was not a decimal number between 0 and 65535".
-                        AUTH_HEADER="Authorization: Basic $(printf '%s:%s' "$GIT_USER" "$GIT_TOKEN" | base64 | tr -d '\n')"
+                        # ---- Authenticate the push -----------------------------------
+                        # We avoid two approaches that have each broken this job:
+                        #   1. a token-in-URL — tokens contain @ : / and break git's
+                        #      URL parser ("Port number was not a decimal number
+                        #      between 0 and 65535"); and
+                        #   2. http.extraheader — in the REUSED Jenkins workspace a
+                        #      URL-scoped http.<host>.extraheader (and/or a cached
+                        #      credential helper) left by the checkout SHADOWS the
+                        #      general one, so GitHub saw no credential and git fell
+                        #      back to a terminal prompt: "could not read Username
+                        #      for 'https://github.com': No such device or address".
+                        #
+                        # GIT_ASKPASS is what the Jenkins git plugin itself uses and
+                        # is immune to both, so use it here: git calls the helper for
+                        # the username and the password.
+                        export GIT_TERMINAL_PROMPT=0
+                        export GIT_ASKPASS="${WORKSPACE:-$PWD}/.git-askpass-release.sh"
+                        {
+                            echo '#!/bin/sh'
+                            echo 'case "$1" in'
+                            echo '    *[Uu]sername*) echo "$GIT_USER" ;;'
+                            echo '    *) echo "$GIT_TOKEN" ;;'
+                            echo 'esac'
+                        } > "$GIT_ASKPASS"
+                        chmod +x "$GIT_ASKPASS"
+
+                        # Forget anything the checkout left that would shadow the
+                        # helper, and point origin at the clean URL.
+                        git config --local --unset-all http.extraheader 2>/dev/null || true
+                        git config --local --unset-all 'http.https://github.com/.extraheader' 2>/dev/null || true
+                        git config --local --unset-all credential.helper 2>/dev/null || true
                         git remote set-url origin "https://$GIT_URL"
-                        git -c http.extraheader="$AUTH_HEADER" push origin "HEAD:$GIT_BRANCH"
-                        git -c http.extraheader="$AUTH_HEADER" push origin "v$RELEASE_VERSION"
+
+                        # -c credential.helper= forces the askpass helper to be the
+                        # only credential source, and GIT_TERMINAL_PROMPT=0 means a
+                        # rejected credential fails with GitHub's OWN message instead
+                        # of an opaque prompt error.
+                        if ! git -c credential.helper= push origin "HEAD:$GIT_BRANCH"; then
+                            echo "=============================================================="
+                            echo "[release] PUSH to $GIT_URL failed."
+                            echo "  credential id: $GIT_CREDENTIALS    git user: $GIT_USER"
+                            echo "If the error above is 'Invalid username or token' or"
+                            echo "'Password authentication is not supported', the GitHub token"
+                            echo "in that Jenkins credential is missing, expired or lacks write"
+                            echo "scope. Regenerate it with 'repo' (classic) or 'Contents:"
+                            echo "Read and write' (fine-grained) and update the credential."
+                            echo "=============================================================="
+                            exit 1
+                        fi
+                        git -c credential.helper= push origin "v$RELEASE_VERSION"
                         echo "Released v$RELEASE_VERSION"
                     '''
                 }
